@@ -1,5 +1,5 @@
 import { S, resetFog, markVisible } from './state.js';
-import { updateLobbyList, updateHUD, toast, killfeed, showErr, onJoined, onGameOver } from './hud.js';
+import { updateLobbyList, updateHUD, toast, killfeed, showErr, onJoined, onGameOver, onGameStarted } from './hud.js';
 import { blip } from './audio.js';
 
 export function connectWS() {
@@ -40,10 +40,11 @@ export function handleMsg(msg) {
             if (msg.id != null) delete S.players[msg.id];
             break;
 
+        case 'game_started':
+            onGameStarted();
+            break;
+
         case 'state': {
-            // === ГЛАВНЫЙ ФИКС ТЕЛЕПОРТА ===
-            // Помечаем всех как «не пришёл в этом пакете», затем обновляем тех,
-            // кто пришёл, СОХРАНЯЯ интерполяционное состояние (_rx/_ry/_tx/_ty).
             for (const id in S.players) S.players[id]._hidden = true;
 
             const incoming = msg.players;
@@ -66,7 +67,6 @@ export function handleMsg(msg) {
             S.projectiles = msg.projectiles;
             S.explosions = msg.explosions;
 
-            // Обновляем тайминги у тайлов, что сервер прислал в этом тике
             if (msg.visible) markVisible(msg.visible, performance.now() / 1000);
 
             const me = S.players[S.myId];
@@ -85,14 +85,11 @@ export function handleMsg(msg) {
                 S.player.dead = me.dead;
                 document.getElementById('dead').classList.toggle('on', me.dead);
                 if (!me.dead && wasDead) {
-                    // Сервер уже прислал respawn отдельным сообщением — здесь
-                    // просто гарантируем, что клиент ожил и позиция верна.
                     S.player.x = me.x; S.player.y = me.y;
                 }
                 updateHUD();
             }
 
-            // Цели интерполяции обновляем каждый тик
             for (const id in S.players) {
                 if (+id === S.myId) continue;
                 const o = S.players[id];
@@ -113,7 +110,6 @@ export function handleMsg(msg) {
             S.player.x = msg.x;
             S.player.y = msg.y;
             S.player.dead = false;
-            // Обнуляем интерполяцию камеры, чтобы не «догоняла» со старой точки
             S.camX = Math.max(0, msg.x - window.innerWidth / 2);
             S.camY = Math.max(0, msg.y - window.innerHeight / 2);
             document.getElementById('dead').classList.remove('on');

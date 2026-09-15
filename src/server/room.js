@@ -11,7 +11,6 @@ const { generateMap } = require('./mapgen');
 
 let nextEntityId = 1;
 
-/* ================= ГЕОМЕТРИЯ ================= */
 function solid(map, x, y) {
     const cx = Math.floor(x / TILE), cy = Math.floor(y / TILE);
     if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return true;
@@ -36,11 +35,10 @@ function segCircleDist(x0, y0, x1, y1, cx, cy) {
     return Math.hypot((x0 + dx * t) - cx, (y0 + dy * t) - cy);
 }
 
-/* ================= КОМНАТА ================= */
 class Room {
     constructor(code, mode, mapType, monstersEnabled = true) {
         this.code = code;
-        this.mode = mode;                                 // 'pvp' | 'coop'
+        this.mode = mode;
         this.mapType = mapType || 'rooms';
         this.monstersEnabled = monstersEnabled !== false;
         this.players = new Map();
@@ -49,12 +47,13 @@ class Room {
         this.projectiles = [];
         this.explosions = [];
 
+        // Симуляция не идёт, пока кто-то не нажмёт «В БОЙ»
+        this.started = false;
+
         const data = generateMap(this.mapType);
         this.map = data.map;
         this.rooms = data.rooms;
 
-        // Кэш пометки тайлов «поколением» — позволяет не аллоцировать Set
-        // каждый тик и избегать дублей в массиве visible.
         this._markers = new Int32Array(MAP_W * MAP_H);
         this._tickGen = 0;
 
@@ -128,17 +127,26 @@ class Room {
             score: 0, kills: 0, deaths: 0, dead: false,
             effects: { invisible: 0, speed: 0, shield: 0, damage: 0, spawn: now + SPAWN_PROTECT_SEC },
             cd: 0, respawnT: 0, autoMeleeCd: 0,
-            _visCache: {},          // otherId -> until (сек), гистерезис видимости
-            lastShotAt: 0           // сек — звуковая засветка
+            _visCache: {},
+            lastShotAt: 0
         };
         this.players.set(id, pl);
         return pl;
     }
     removePlayer(id) { this.players.delete(id); }
 
-    /* ---------- ВИДИМЫЕ ТАЙЛЫ (текущее поле зрения) ----------
-       Возвращает массив индексов тайлов, которые игрок видит ПРЯМО СЕЙЧАС.
-       Клиент сам решает, что уже погасло (хранит timestamps у себя). */
+    startGame() {
+        if (this.started) return false;
+        this.started = true;
+        const now = Date.now() / 1000;
+        // даём всем свежую защиту на старте
+        for (const p of this.players.values()) {
+            p.effects.spawn = now + SPAWN_PROTECT_SEC;
+        }
+        return true;
+    }
+
+    /* ---------- Видимые тайлы ---------- */
     computeVisibleTiles(p) {
         const gen = ++this._tickGen;
         const marks = this._markers;
@@ -146,7 +154,6 @@ class Room {
         const px = p.x, py = p.y;
         const cx = Math.floor(px / TILE), cy = Math.floor(py / TILE);
 
-        // Ближний круг — видно независимо от направления
         const R = VIEW_RADIUS;
         for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
             if (dx * dx + dy * dy > R * R + R) continue;
@@ -156,7 +163,6 @@ class Room {
             if (marks[idx] !== gen) { marks[idx] = gen; indices.push(idx); }
         }
 
-        // Конус фонарика с прерыванием о стену
         const half = VIEW_HALF_ANGLE;
         const range = VIEW_RANGE;
         const step = TILE;
@@ -175,7 +181,6 @@ class Room {
         return indices;
     }
 
-    // Может ли viewer «видеть глазами» target (для PVP)
     isVisibleTo(viewer, target) {
         const dx = target.x - viewer.x, dy = target.y - viewer.y;
         const dist = Math.hypot(dx, dy);
@@ -185,21 +190,20 @@ class Room {
             let diff = angle - viewer.dir;
             while (diff >  Math.PI) diff -= 2 * Math.PI;
             while (diff < -Math.PI) diff += 2 * Math.PI;
-            // +0.25 рад — анти-мерцание на краю конуса
             if (Math.abs(diff) > VIEW_HALF_ANGLE + 0.25) return false;
         }
         return !rayWall(this.map, viewer.x, viewer.y, target.x, target.y).hit;
     }
 
-    /* ---------- Стрельба / урон ---------- */
+    /* ---------- Стрельба ---------- */
     fireWeapon(player, dirX, dirY) {
+        if (!this.started) return;
         const now = Date.now() / 1000;
         if (player.cd > now) return;
         const wName = player.currentWeapon;
         const w = WEAPONS[wName];
         if (!w) return;
 
-        // Отмечаем звук — даже если выстрел «мимо» и даже для melee
         player.lastShotAt = now;
 
         if (w.melee) {
@@ -250,7 +254,7 @@ class Room {
         this.dropPowerup(m.x, m.y);
         if (!this.monstersEnabled) return;
         setTimeout(() => {
-            if (!this.monstersEnabled) return;
+            if (!this.monstersEnabled || !this.started) return;
             if (!this.players.size) return;
             const p = this.findOpenSpot();
             this.monsters.push({
@@ -309,8 +313,8 @@ class Room {
         }
     }
 
-    /* ---------- Респавн (вызывается из ws.js каждые ~400 мс) ---------- */
     respawnLoop() {
+        if (!this.started) return;
         const now = Date.now() / 1000;
         for (const p of this.players.values()) {
             if (p.dead && p.respawnT < now) {
@@ -338,8 +342,10 @@ class Room {
         }
     }
 
-    /* ================= ГЛАВНЫЙ ТИК ================= */
+    /* ---------- Главный тик ---------- */
     tick() {
+        if (!this.started) return;    // пока лобби — не тикаем вообще
+
         const now = Date.now() / 1000;
         const dt = Math.min(0.1, (Date.now() - this.lastTick) / 1000);
         this.lastTick = Date.now();
@@ -347,7 +353,7 @@ class Room {
         for (const p of this.players.values())
             for (const k in p.effects) if (p.effects[k] < now) p.effects[k] = 0;
 
-        /* ---- Монстры ---- */
+        // --- Монстры ---
         for (const m of this.monsters) {
             if (m.hitT > 0) m.hitT -= dt;
             let target = null, td = 99999;
@@ -368,13 +374,10 @@ class Room {
             if (!solid(this.map, nx, m.y)) m.x = nx;
             const ny = m.y + vy * dt;
             if (!solid(this.map, m.x, ny)) m.y = ny;
-            if (target && td < 20 && now - m.atk > 1) {
-                m.atk = now;
-                this.hurtPlayer(target.id, m.dmg, 'monster');
-            }
+            if (target && td < 20 && now - m.atk > 1) { m.atk = now; this.hurtPlayer(target.id, m.dmg, 'monster'); }
         }
 
-        /* ---- Авто-нож ---- */
+        // --- Авто-нож ---
         for (const p of this.players.values()) {
             if (p.dead || p.effects.spawn > now || p.autoMeleeCd > now) continue;
             let nearest = null, nd = AUTO_MELEE_RANGE;
@@ -391,7 +394,7 @@ class Room {
             }
         }
 
-        /* ---- Снаряды ---- */
+        // --- Снаряды ---
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const pr = this.projectiles[i];
             if (pr.homing) {
@@ -473,7 +476,7 @@ class Room {
         }
         for (const l of this.loot) if (l.taken && now * 1000 > l.respawn) l.taken = false;
 
-        /* ---- ВИДИМЫЕ ТАЙЛЫ ---- */
+        // --- Видимые тайлы ---
         const perPlayerVisible = new Map();
         if (this.mode === 'coop') {
             const combined = new Set();
@@ -490,7 +493,7 @@ class Room {
             }
         }
 
-        /* ---- Общая часть state ---- */
+        // --- Общая часть state ---
         const monstersArr = [];
         for (const m of this.monsters)
             monstersArr.push({ id: m.id, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, hitT: m.hitT });
@@ -507,7 +510,6 @@ class Room {
         for (const e of this.explosions)
             explArr.push({ x: e.x, y: e.y, r: e.maxR * (1 - e.life / e.maxLife) });
 
-        // Сериализация игроков один раз
         const serializedPlayers = {};
         for (const [pid, p] of this.players) {
             serializedPlayers[pid] = {
@@ -524,7 +526,6 @@ class Room {
             };
         }
 
-        /* ---- Персональная рассылка ---- */
         for (const [pid, p] of this.players) {
             if (p.ws.readyState !== 1) continue;
             const personalState = {
@@ -536,18 +537,10 @@ class Room {
                 explosions: explArr,
                 visible: perPlayerVisible.get(pid) || []
             };
-
             for (const [oid, op] of this.players) {
-                if (oid === pid) {
-                    personalState.players[oid] = serializedPlayers[oid];
-                    continue;
-                }
-                if (this.mode === 'coop') {
-                    personalState.players[oid] = serializedPlayers[oid];
-                    continue;
-                }
+                if (oid === pid) { personalState.players[oid] = serializedPlayers[oid]; continue; }
+                if (this.mode === 'coop') { personalState.players[oid] = serializedPlayers[oid]; continue; }
 
-                // PVP: решение о включении в персональный state
                 const dead = op.dead;
                 const invisible = (op.effects.invisible > now) && !dead;
                 const visibleBySight = !dead && !invisible && this.isVisibleTo(p, op);
@@ -555,7 +548,6 @@ class Room {
                 if (visibleBySight) p._visCache[oid] = now + VISIBILITY_HYSTERESIS;
                 const inCache = !dead && !invisible && now < (p._visCache[oid] || 0);
 
-                // Звук выстрела: видим даже сквозь стены и невидимость, если рядом
                 const revealedBySound = !dead
                     && (now - (op.lastShotAt || 0)) < REVEAL_TIME
                     && Math.hypot(op.x - p.x, op.y - p.y) < REVEAL_RADIUS;
@@ -563,7 +555,6 @@ class Room {
                 if (visibleBySight || inCache) {
                     personalState.players[oid] = serializedPlayers[oid];
                 } else if (revealedBySound) {
-                    // Клонируем: shared-объект не должен получить флаг revealed
                     personalState.players[oid] = Object.assign({}, serializedPlayers[oid], { revealed: true });
                 }
             }

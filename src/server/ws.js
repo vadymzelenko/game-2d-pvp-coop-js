@@ -44,6 +44,7 @@ function handleConnection(ws) {
             ws.playerId = id; ws.roomCode = code;
             ws.send(JSON.stringify({
                 type: 'joined', id, code, mode: room.mode, mapType: room.mapType,
+                started: room.started,
                 map: room.map, mapW: MAP_W, mapH: MAP_H,
                 players: Array.from(room.players.values()).map(x => ({ id: x.id, name: x.name }))
             }));
@@ -58,13 +59,22 @@ function handleConnection(ws) {
             ws.playerId = id; ws.roomCode = msg.room;
             ws.send(JSON.stringify({
                 type: 'joined', id, code: msg.room, mode: room.mode, mapType: room.mapType,
+                started: room.started,
                 map: room.map, mapW: MAP_W, mapH: MAP_H,
                 players: Array.from(room.players.values()).map(x => ({ id: x.id, name: x.name }))
             }));
             room.broadcast({ type: 'player_joined', id, name: p.name }, id);
         }
+        else if (msg.type === 'start') {
+            const room = rooms.get(ws.roomCode); if (!room) return;
+            if (room.startGame()) {
+                room.broadcast({ type: 'game_started' });
+                console.log(`[room ${room.code}] started`);
+            }
+        }
         else if (msg.type === 'input') {
             const room = rooms.get(ws.roomCode); if (!room) return;
+            if (!room.started) return;   // не двигаем игрока в лобби
             const p = room.players.get(ws.playerId); if (!p || p.dead) return;
             p.x = msg.x; p.y = msg.y; p.dir = msg.dir;
         }
@@ -82,6 +92,7 @@ function handleConnection(ws) {
         }
         else if (msg.type === 'pickup') {
             const room = rooms.get(ws.roomCode); if (!room) return;
+            if (!room.started) return;
             const p = room.players.get(ws.playerId); if (!p) return;
             const l = room.loot.find(x => x.id === msg.id);
             if (!l || l.taken) return;
@@ -115,8 +126,6 @@ function handleConnection(ws) {
     ws.on('close', () => leave(ws));
 }
 
-/* ==== ГЛОБАЛЬНЫЙ ТИК ВОЗРОЖДЕНИЯ ====
-   Вот эта строчка отсутствовала — из-за неё мёртвые игроки не воскресали. */
 setInterval(() => {
     for (const r of rooms.values()) {
         try { r.respawnLoop(); } catch (e) { console.error('respawn loop error', e); }

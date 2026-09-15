@@ -2,33 +2,28 @@ export const TILE = 20;
 export const MAP_W = 90, MAP_H = 60;
 
 export const WEAPONS = {
-    knife:   { name:'НОЖ',      melee:true, cd:0.4, ammoCost:0, color:'#e0d0ff' },
-    pistol:  { name:'ПИСТОЛЕТ', dmg:32, cd:0.30,  ammoCost:1, color:'#ffd060' },
-    smg:     { name:'ПП',       dmg:16, cd:0.075, ammoCost:1, auto:true, color:'#7effb0' },
-    shotgun: { name:'ДРОБОВИК', dmg:20, cd:0.85,  ammoCost:1, color:'#ffa040' },
-    rifle:   { name:'ВИНТОВКА', dmg:65, cd:0.8,   ammoCost:1, color:'#c080ff' },
-    rocket:  { name:'РАКЕТА',   dmg:85, cd:1.6,   ammoCost:1, color:'#ff6060' },
-    grenade: { name:'ГРАНАТА',  dmg:95, cd:1.4,   ammoCost:1, color:'#ffe040' }
+    knife:   { name:'НОЖ',      melee:true, cd:0.4,   ammoCost:0, color:'#c8ccd2' },
+    pistol:  { name:'ПИСТОЛЕТ', dmg:32, cd:0.30,  ammoCost:1, color:'#d4913f' },
+    smg:     { name:'ПП',       dmg:16, cd:0.075, ammoCost:1, auto:true, color:'#8fb87a' },
+    shotgun: { name:'ДРОБОВИК', dmg:20, cd:0.85,  ammoCost:1, color:'#c08858' },
+    rifle:   { name:'ВИНТОВКА', dmg:65, cd:0.8,   ammoCost:1, color:'#a0a8b4' },
+    rocket:  { name:'РАКЕТА',   dmg:85, cd:1.6,   ammoCost:1, color:'#c05555' },
+    grenade: { name:'ГРАНАТА',  dmg:95, cd:1.4,   ammoCost:1, color:'#c0a355' }
 };
 export const WEAPON_ORDER = ['knife','pistol','smg','shotgun','rifle','rocket','grenade'];
 
 export const POWERUP_INFO = {
-    invisible: { color:'#8ac0ff', icon:'👁', label:'НЕВИДИМОСТЬ' },
-    speed:     { color:'#7effb0', icon:'⚡', label:'СКОРОСТЬ' },
-    shield:    { color:'#ffd060', icon:'◆', label:'ЩИТ' },
-    damage:    { color:'#ff6060', icon:'✦', label:'x2 УРОН' },
-    ammo:      { color:'#ffd060', icon:'•', label:'ПАТРОНЫ' },
-    health:    { color:'#ff6080', icon:'✚', label:'АПТЕЧКА' },
-    spawn:     { color:'#7effb0', icon:'🛡', label:'ЗАЩИТА' }
+    invisible: { color:'#6b8fc4', icon:'👁', label:'НЕВИДИМОСТЬ' },
+    speed:     { color:'#5fa878', icon:'⚡', label:'СКОРОСТЬ' },
+    shield:    { color:'#d4913f', icon:'◆', label:'ЩИТ' },
+    damage:    { color:'#c05555', icon:'✦', label:'x2 УРОН' },
+    ammo:      { color:'#d4913f', icon:'•', label:'ПАТРОНЫ' },
+    health:    { color:'#c86060', icon:'✚', label:'АПТЕЧКА' },
+    spawn:     { color:'#5fa878', icon:'🛡', label:'ЗАЩИТА' }
 };
 
-// Затухание тумана (сек)
 export const FOG_FADE_TIME = 8;
-
-// Правый стик: с какой доли вытянутости начинается огонь
-// 0.0 = стреляем сразу;  1.0 = надо тянуть до конца
 export const AIM_FIRE_THRESHOLD = 0.72;
 
-// Зеркальные константы звуковой засветки — только для UI-подсказок
 export const REVEAL_TIME   = 2.5;
 export const REVEAL_RADIUS = 360;

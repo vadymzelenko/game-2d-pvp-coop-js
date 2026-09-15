@@ -5,7 +5,25 @@ import { initInput, keys, joy, aim, tryFire } from './input.js';
 import { setupCanvas, render, getCanvasInfo } from './render.js';
 import { updateHUD, showErr, toast } from './hud.js';
 
-/* ==== Кампания UI ==== */
+/* ==== FULLSCREEN ==== */
+async function enterFullscreen() {
+    try {
+        const el = document.documentElement;
+        if (el.requestFullscreen) await el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch (e) { /* некоторые браузеры блокируют без user-gesture */ }
+}
+function exitFullscreen() {
+    try {
+        if (document.fullscreenElement) document.exitFullscreen();
+    } catch (e) {}
+}
+document.getElementById('fullBtn').addEventListener('click', () => {
+    if (document.fullscreenElement) exitFullscreen();
+    else enterFullscreen();
+});
+
+/* ==== МЕНЮ ==== */
 let createMode = 'pvp';
 let createMap = 'rooms';
 
@@ -51,6 +69,7 @@ document.getElementById('codeInp').addEventListener('keydown', e => {
 });
 
 function exitToMenu() {
+    exitFullscreen();
     if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ type: 'leave' }));
     S.mode_ui = 'menu';
     S.players = {}; S.monsters = []; S.loot = []; S.explored = null;
@@ -66,13 +85,28 @@ document.getElementById('goBack').addEventListener('click', () => {
     document.getElementById('lobby').classList.remove('hide');
     S.mode_ui = 'lobby';
 });
-document.getElementById('btnStart').addEventListener('click', () => {
+
+document.getElementById('btnStart').addEventListener('click', async () => {
+    // Фуллскрин по user-gesture
+    enterFullscreen();
+
+    // Просим сервер начать игру
+    sendMsg({ type: 'start' });
+
+    // Сразу переходим в игровой режим локально
     document.getElementById('lobby').classList.add('hide');
     document.getElementById('menu').classList.add('hide');
     document.getElementById('gameover').classList.add('hide');
     S.mode_ui = 'game';
+
     const p = S.players[S.myId];
     if (p) { S.player.x = p.x; S.player.y = p.y; }
+
+    // Сбрасываем камеру на позицию игрока
+    const { W, H } = getCanvasInfo();
+    S.camX = Math.max(0, Math.min(S.MAPW - W, S.player.x - W / 2));
+    S.camY = Math.max(0, Math.min(S.MAPH - H, S.player.y - H / 2));
+
     toast('ВЫ ПОД ЗАЩИТОЙ');
 });
 
@@ -88,6 +122,23 @@ let last = performance.now();
 
 function update(dt) {
     S.t += dt;
+
+    // Всегда обновляем таймеры для эффектов рендера (в т.ч. в лобби)
+    if (S.muzzleFlash > 0) S.muzzleFlash -= dt;
+    if (S.meleeFlash > 0) S.meleeFlash -= dt;
+    S.shake *= 0.9;
+    for (let i = S.particles.length - 1; i >= 0; i--) {
+        const q = S.particles[i];
+        q.x += q.vx * dt; q.y += q.vy * dt;
+        q.vx *= 0.9; q.vy *= 0.9;
+        q.life -= dt;
+        if (q.life <= 0) S.particles.splice(i, 1);
+    }
+    for (let i = S.autoMeleeFx.length - 1; i >= 0; i--) {
+        S.autoMeleeFx[i].life -= dt;
+        if (S.autoMeleeFx[i].life <= 0) S.autoMeleeFx.splice(i, 1);
+    }
+
     if (S.mode_ui !== 'game') return;
     const p = S.player;
     if (p.dead) return;
@@ -110,9 +161,6 @@ function update(dt) {
         if (!solid(p.x, ny)) p.y = ny;
     }
 
-    // ==== СТРЕЛЬБА ====
-    // 1) Мышь: авто-огонь только для auto-оружия
-    // 2) Правый стик: пока вытянут за порог — огонь с темпом текущего оружия
     S.firingCd -= dt;
     if (S.autoFire && WEAPONS[p.weapon]?.auto && S.firingCd <= 0) {
         tryFire();
@@ -121,21 +169,6 @@ function update(dt) {
     if (aim.active && aim.firing && S.firingCd <= 0) {
         tryFire();
         S.firingCd = WEAPONS[p.weapon].cd;
-    }
-
-    for (let i = S.particles.length - 1; i >= 0; i--) {
-        const q = S.particles[i];
-        q.x += q.vx * dt; q.y += q.vy * dt;
-        q.vx *= 0.9; q.vy *= 0.9;
-        q.life -= dt;
-        if (q.life <= 0) S.particles.splice(i, 1);
-    }
-    if (S.meleeFlash > 0) S.meleeFlash -= dt;
-    S.shake *= 0.9;
-
-    for (let i = S.autoMeleeFx.length - 1; i >= 0; i--) {
-        S.autoMeleeFx[i].life -= dt;
-        if (S.autoMeleeFx[i].life <= 0) S.autoMeleeFx.splice(i, 1);
     }
 
     for (const id in S.players) {
@@ -174,5 +207,6 @@ initInput();
 window.addEventListener('resize', () => { setupCanvas(); });
 if (window.visualViewport) window.visualViewport.addEventListener('resize', () => setupCanvas());
 window.addEventListener('orientationchange', () => setTimeout(setupCanvas, 200));
+document.addEventListener('fullscreenchange', () => setTimeout(setupCanvas, 100));
 
 requestAnimationFrame(loop);

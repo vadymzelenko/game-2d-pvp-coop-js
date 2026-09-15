@@ -66,9 +66,20 @@ export function onJoined(msg) {
     $('lobbyLink').textContent = `${location.origin}/  ·  код: ${msg.code}`;
     $('roomcode').textContent = 'КОМНАТА ' + msg.code;
     updateLobbyList(msg.players);
-    $('menu').classList.add('hide');
-    $('lobby').classList.remove('hide');
-    S.mode_ui = 'lobby';
+
+    if (msg.started) {
+        // Мы присоединились к уже идущей игре
+        $('menu').classList.add('hide');
+        $('lobby').classList.add('hide');
+        S.mode_ui = 'game';
+        const me = S.players[S.myId];
+        if (me) { S.player.x = me.x; S.player.y = me.y; }
+    } else {
+        // Идём в лобби
+        $('menu').classList.add('hide');
+        $('lobby').classList.remove('hide');
+        S.mode_ui = 'lobby';
+    }
 }
 
 export function onGameOver(msg) {
@@ -76,4 +87,15 @@ export function onGameOver(msg) {
     $('goTitle').textContent = msg.winner === S.myId ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ';
     $('goSub').textContent = `${msg.name} · ${msg.score} убийств`;
     S.mode_ui = 'lobby';
+}
+
+export function onGameStarted() {
+    if (S.mode_ui === 'lobby') {
+        $('lobby').classList.add('hide');
+        $('menu').classList.add('hide');
+        S.mode_ui = 'game';
+        const me = S.players[S.myId];
+        if (me) { S.player.x = me.x; S.player.y = me.y; }
+        toast('ВЫ ПОД ЗАЩИТОЙ');
+    }
 }

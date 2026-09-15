@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-    <meta name="theme-color" content="#0a0414">
+    <meta name="theme-color" content="#0d0f12">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -23,6 +23,7 @@
     </div>
     <div id="topRight">
         <div id="roomcode"></div>
+        <button id="fullBtn" title="Полный экран">⛶</button>
         <button id="exitBtn">ВЫЙТИ</button>
     </div>
     <div id="effects"></div>
@@ -45,62 +46,60 @@
 <div id="dead"><div>ТЫ УБИТ</div><div id="deadSub">ВОЗРОЖДЕНИЕ...</div></div>
 
 <div id="mob">
-    <!-- Левый стик — движение -->
     <div id="joyZone"><div id="joyBase"><div id="joyKnob"></div></div></div>
-
-    <!-- Правый стик — прицел + огонь (вытяни дальше, чтобы стрелять) -->
     <div id="aimZone"><div id="aimBase"><div id="aimKnob"></div></div></div>
-
-    <!-- Вспомогательные кнопки над аим-стиком -->
     <button class="mBtn" id="bUse">ВЗЯТЬ</button>
-    <button class="mBtn" id="bSwitch">🔄</button>
+    <button class="mBtn" id="bSwitch">⇄</button>
 </div>
 
 <div id="menu">
     <div class="card">
-        <h1>САНАТОРИЙ «ЗОРЯ»</h1>
-        <div class="sub">MULTIPLAYER · v4.1</div>
-        <input type="text" id="nameInp" maxlength="14" placeholder="имя">
+        <h1>САНАТОРИЙ</h1>
+        <div class="sub">MULTIPLAYER · v5.0</div>
+        <input type="text" id="nameInp" maxlength="14" placeholder="ИМЯ">
         <div class="lbl">РЕЖИМ</div>
         <div class="row">
-            <button class="mbtn small on" data-mode="pvp" id="mPvp">⚔ PVP</button>
-            <button class="mbtn small" data-mode="coop" id="mCoop">🤝 CO-OP</button>
+            <button class="mbtn small on" data-mode="pvp" id="mPvp">PVP</button>
+            <button class="mbtn small" data-mode="coop" id="mCoop">CO-OP</button>
         </div>
         <div class="lbl">КАРТА</div>
         <div class="row">
-            <button class="mbtn small on" data-map="rooms" id="mapRooms">🏭 СТАНЦИЯ</button>
-            <button class="mbtn small" data-map="open" id="mapOpen">🌌 АРЕНА</button>
-            <button class="mbtn small" data-map="maze" id="mapMaze">🌀 ЛАБИРИНТ</button>
+            <button class="mbtn small on" data-map="rooms" id="mapRooms">СТАНЦИЯ</button>
+            <button class="mbtn small" data-map="open"  id="mapOpen">АРЕНА</button>
+            <button class="mbtn small" data-map="maze"  id="mapMaze">ЛАБИРИНТ</button>
         </div>
         <div class="row" style="margin-top:8px">
-            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:11px;letter-spacing:2px;color:#c0b0ff">
-                <input type="checkbox" id="noMonsters" style="accent-color:#8b4dff;width:16px;height:16px">
-                БЕЗ МОНСТРОВ
+            <label class="check">
+                <input type="checkbox" id="noMonsters">
+                <span>БЕЗ МОНСТРОВ</span>
             </label>
         </div>
-        <div class="row" style="margin-top:10px">
+        <div class="row" style="margin-top:12px">
             <button class="mbtn primary" id="btnCreate">СОЗДАТЬ КОМНАТУ</button>
         </div>
         <div class="lbl">ИЛИ ПОДКЛЮЧИТЬСЯ</div>
         <div class="row">
-            <input type="text" id="codeInp" maxlength="4" placeholder="КОД" style="width:100px;text-transform:uppercase;margin-bottom:0">
+            <input type="text" id="codeInp" maxlength="4" placeholder="КОД" class="code-inp">
             <button class="mbtn" id="btnJoin">ВОЙТИ</button>
         </div>
         <div class="err" id="menuErr"></div>
-        <div class="hintbar">WASD / ЛЕВ.СТИК · ПРАВ.СТИК — ПРИЦЕЛ, ВЫТЯНИ — ОГОНЬ<br>E — ПОДОБРАТЬ · 1-7 — ОРУЖИЕ<br>💡 выстрел выдаёт тебя на 2.5 сек в радиусе слышимости</div>
+        <div class="hintbar">
+            WASD / ЛЕВ.СТИК — ДВИЖЕНИЕ · ПРАВ.СТИК — ПРИЦЕЛ, ВЫТЯНИ ДАЛЬШЕ — ОГОНЬ<br>
+            E — ПОДОБРАТЬ · 1–7 — ОРУЖИЕ · ⛶ — ПОЛНЫЙ ЭКРАН
+        </div>
     </div>
 </div>
 
 <div id="lobby" class="hide">
     <div class="card">
-        <h1 id="lobbyTitle">КОМНАТА</h1>
-        <div class="sub" id="lobbyMode">PVP · ДО 8 УБИЙСТВ</div>
+        <h1>КОМНАТА</h1>
+        <div class="sub" id="lobbyMode"></div>
         <div class="code-big" id="lobbyCode">----</div>
         <div class="lbl">ССЫЛКА ДЛЯ ДРУЗЕЙ</div>
-        <div style="font-size:10px;color:#7effb0;letter-spacing:1px;text-shadow:0 0 8px #0fa;word-break:break-all" id="lobbyLink"></div>
+        <div class="link" id="lobbyLink"></div>
         <div class="plist" id="lobbyPlayers"></div>
-        <button class="mbtn primary" id="btnStart" style="margin-top:12px">В БОЙ</button>
-        <button class="mbtn small" id="btnLeave" style="margin-top:4px">ПОКИНУТЬ</button>
+        <button class="mbtn primary" id="btnStart" style="margin-top:14px">В БОЙ</button>
+        <button class="mbtn small" id="btnLeave" style="margin-top:6px">ПОКИНУТЬ</button>
     </div>
 </div>
 

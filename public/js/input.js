@@ -9,6 +9,9 @@ export const aim = { active: false, id: null, dx: 0, dy: 0, bx: 0, by: 0, mag: 0
 
 const IS_TOUCH = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
+// Клиентский cooldown, чтобы не спамить сервер и не было холостых выстрелов
+let localFireCd = 0;
+
 export function initInput() {
     document.addEventListener('keydown', e => {
         const k = e.key.toLowerCase();
@@ -25,7 +28,6 @@ export function initInput() {
     });
     document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-    // Мышь — только на десктопе
     if (!IS_TOUCH) {
         const cv = document.getElementById('cv');
         cv.addEventListener('mousedown', e => { if (e.button === 0) { S.autoFire = true; tryFire(); } });
@@ -42,22 +44,42 @@ export function initInput() {
 export function tryFire() {
     if (S.mode_ui !== 'game' || S.player.dead) return;
     const p = S.player;
+    const w = WEAPONS[p.weapon];
+    if (!w) return;
+
+    // Клиентский кулдаун — синхронно с сервером
+    const nowSec = performance.now() / 1000;
+    if (nowSec < localFireCd) return;
+    if (!w.melee && p.ammo < 1) return;
+
+    localFireCd = nowSec + w.cd;
+
     const dx = Math.cos(p.dir), dy = Math.sin(p.dir);
     sendMsg({ type: 'fire', dx, dy });
-    blip(p.weapon === 'knife' ? 320 : 130, 0.1, 0.08, 'square');
-    if (p.weapon !== 'knife') S.shake = 1.8;
-    else S.meleeFlash = 0.18;
 
+    // Сразу считаем один патрон в минус для отзывчивости
+    if (!w.melee) p.ammo = Math.max(0, p.ammo - 1);
+
+    // Звук
+    blip(p.weapon === 'knife' ? 320 : 130, 0.1, 0.08, 'square');
+
+    // Эффекты
     if (p.weapon !== 'knife') {
+        S.shake = 1.8;
+        S.muzzleFlash = 0.07;
         const col = WEAPONS[p.weapon]?.color || '#ffd060';
-        for (let i = 0; i < 4; i++) {
+        // Искры из дула
+        for (let i = 0; i < 6; i++) {
+            const ang = p.dir + (Math.random() - 0.5) * 0.6;
+            const sp = 180 + Math.random() * 200;
             S.particles.push({
-                x: p.x + dx * 18, y: p.y + dy * 18,
-                vx: dx * 500 + Math.random() * 120 - 60,
-                vy: dy * 500 + Math.random() * 120 - 60,
-                life: 0.22, max: 0.22, color: col
+                x: p.x + dx * 20, y: p.y + dy * 20,
+                vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+                life: 0.18, max: 0.18, color: col
             });
         }
+    } else {
+        S.meleeFlash = 0.18;
     }
 }
 
@@ -77,7 +99,6 @@ function initTouch() {
     if (!IS_TOUCH) return;
     document.getElementById('mob').classList.add('on');
 
-    /* --- Левый стик: движение --- */
     const joyZone = document.getElementById('joyZone');
     const joyBase = document.getElementById('joyBase');
     const joyKnob = document.getElementById('joyKnob');
@@ -120,7 +141,6 @@ function initTouch() {
     joyZone.addEventListener('touchend',   joyEnd);
     joyZone.addEventListener('touchcancel',joyEnd);
 
-    /* --- Правый стик: прицел + огонь при вытягивании --- */
     const aimZone = document.getElementById('aimZone');
     const aimBase = document.getElementById('aimBase');
     const aimKnob = document.getElementById('aimKnob');
@@ -134,8 +154,6 @@ function initTouch() {
         const r = aimZone.getBoundingClientRect();
         aimBase.style.left = (t.clientX - r.left) + 'px';
         aimBase.style.top  = (t.clientY - r.top)  + 'px';
-        // Мгновенная наводка в точку касания относительно игрока — как в Mini Militia
-        // (мягкая: только если уже тянем — первую наводку дадим в move).
     }
     function aimMove(e) {
         if (!aim.active) return;
@@ -150,17 +168,14 @@ function initTouch() {
         const k = len > max ? max / len : 1;
         aimKnob.style.transform = `translate(${dx * k}px,${dy * k}px)`;
 
-        // Нормализованная «сила» вытянутости [0..1]
         aim.mag = Math.min(1, len / max);
         const jl = Math.hypot(dx, dy);
         if (jl > 4) {
-            const nd = Math.atan2(dy, dx);
-            S.player.dir = nd;
+            S.player.dir = Math.atan2(dy, dx);
             aim.dx = dx / max; aim.dy = dy / max;
             if (aim.mag > 1) { aim.dx /= aim.mag; aim.dy /= aim.mag; }
         }
 
-        // Огонь при вытягивании за порог
         const nowFiring = aim.mag >= AIM_FIRE_THRESHOLD;
         if (nowFiring !== aim.firing) {
             aim.firing = nowFiring;
@@ -173,7 +188,6 @@ function initTouch() {
         aim.firing = false;
         aim.mag = 0;
         aim.dx = 0; aim.dy = 0;
-        // Направление игрока НЕ сбрасываем — как в twin-stick: держим последнее.
         aimKnob.style.transform = 'translate(0,0)';
         aimBase.style.transition = '';
         aimBase.style.left = '50%';
@@ -186,7 +200,6 @@ function initTouch() {
     aimZone.addEventListener('touchend',   aimEnd);
     aimZone.addEventListener('touchcancel',aimEnd);
 
-    /* --- Кнопки --- */
     document.getElementById('bUse').addEventListener('touchstart', e => { e.preventDefault(); tryPickup(); }, { passive: false });
     document.getElementById('bUse').addEventListener('click', tryPickup);
     document.getElementById('bSwitch').addEventListener('click', () => {
