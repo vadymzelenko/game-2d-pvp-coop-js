@@ -32,12 +32,15 @@ const AUTO_MELEE_DMG    = 26;
 const VIEW_RANGE      = 16 * TILE;   // дальность фонарика
 const VIEW_HALF_ANGLE = 0.65;        // половина угла конуса (~37°)
 const VIEW_RADIUS     = 3;           // tiles — «близкий круг» вокруг игрока
-const FOG_RAYS        = 48;          // кол-во лучей для конуса
+const FOG_RAYS        = 40;          // кол-во лучей для конуса
+
+const VISIBILITY_HYSTERESIS = 0.4;
 
 module.exports = {
     TILE, MAP_W, MAP_H,
     WEAPONS, WEAPON_ORDER,
     POWERUPS, LOOT_WEAPONS, LOOT_BASIC, KILL_DROPS,
     SPAWN_PROTECT_SEC, AUTO_MELEE_RANGE, AUTO_MELEE_CD, AUTO_MELEE_DMG,
-    VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS
+    VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS,
+    VISIBILITY_HYSTERESIS
 };

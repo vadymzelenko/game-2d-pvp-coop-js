@@ -1,5 +1,5 @@
-import { S } from './state.js';
-import { WEAPONS, POWERUP_INFO, TILE } from './config.js';
+import { S, tileBrightness } from './state.js';
+import { WEAPONS, POWERUP_INFO, TILE, FOG_FADE_TIME } from './config.js';
 import { drawMinimap } from './minimap.js';
 
 let DPR = 1;
@@ -26,7 +26,6 @@ export function setupCanvas() {
     dctx = darkCv.getContext('2d');
 
     buildNoise();
-
     S.camX = Math.max(0, Math.min(S.MAPW - W, S.camX));
     S.camY = Math.max(0, Math.min(S.MAPH - H, S.camY));
 }
@@ -57,6 +56,15 @@ function hexRgb(hex) {
     return `${parseInt(h.substring(0,2),16)},${parseInt(h.substring(2,4),16)},${parseInt(h.substring(4,6),16)}`;
 }
 
+// Свежий ли тайл под координатами (в мировых пикселях). threshold = минимальная яркость,
+// при которой объект ещё стоит показывать.
+function isWorldLit(wx, wy, nowSec, threshold = 0.12) {
+    if (!S.explored) return true;
+    const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
+    if (tx < 0 || ty < 0 || tx >= S.COLS || ty >= S.ROWS) return false;
+    return tileBrightness(ty * S.COLS + tx, nowSec, FOG_FADE_TIME) > threshold;
+}
+
 export function render() {
     const ctx = document.getElementById('cv').getContext('2d');
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -66,6 +74,7 @@ export function render() {
     if (S.mode_ui !== 'game' || !S.map) return;
     const p = S.player;
     const camX = S.camX, camY = S.camY;
+    const nowSec = performance.now() / 1000;
 
     ctx.save();
     if (S.shake > 0.05)
@@ -78,14 +87,20 @@ export function render() {
 
     ctx.translate(-camX, -camY);
 
-    // === ТАЙЛЫ (с туманом войны) ===
+    /* ============ ТАЙЛЫ С ЗАТУХАНИЕМ ============ */
+    // Тайл был освещён N сек назад — рисуем с alpha по tileBrightness().
+    // Полностью выцвел — вообще не рисуем (остаётся чёрный фон canvas).
     for (let y = y0; y < y1; y++) {
         for (let x = x0; x < x1; x++) {
             const idx = y * S.COLS + x;
-            if (S.explored && !S.explored[idx]) continue; // не открыто — чёрное
+            const br = tileBrightness(idx, nowSec, FOG_FADE_TIME);
+            if (br <= 0.02) continue;
 
             const isWall = S.map[y][x] === '#';
             const h = hash2(x, y);
+
+            ctx.globalAlpha = br;
+
             if (isWall) {
                 const zone = (Math.floor(x / 8) + Math.floor(y / 6) * 3) % 6;
                 const HUE = [280, 300, 200, 260, 320, 240][zone];
@@ -104,9 +119,9 @@ export function render() {
 
                 if (h > 0.55) {
                     ctx.fillStyle = `hsla(${HUE}, 20%, ${LIGHT + 25}%, 0.35)`;
-                    ctx.fillRect(x * TILE + 2, y * TILE + 7, 8, 1);
+                    ctx.fillRect(x * TILE + 2,  y * TILE + 7,  8, 1);
                     ctx.fillRect(x * TILE + 11, y * TILE + 13, 7, 1);
-                    ctx.fillRect(x * TILE + 3, y * TILE + 17, 5, 1);
+                    ctx.fillRect(x * TILE + 3,  y * TILE + 17, 5, 1);
                 }
                 if (h > 0.9) {
                     ctx.fillStyle = `hsla(${HUE}, 90%, 65%, 0.5)`;
@@ -142,18 +157,24 @@ export function render() {
             }
         }
     }
+    ctx.globalAlpha = 1;
 
-    // ЛУТ
+    /* ============ ЛУТ ============ */
     for (const l of S.loot) {
-        const tx = Math.floor(l.x / TILE), ty = Math.floor(l.y / TILE);
-        if (S.explored && !S.explored[ty * S.COLS + tx]) continue;
-
+        if (!isWorldLit(l.x, l.y, nowSec, 0.15)) continue;
         const pulse = 1 + Math.sin(S.t * 3 + l.id.charCodeAt(1)) * 0.15;
         let col = '#ffd060';
         let draw = null;
         if (l.type === 'ammo') {
             col = '#ffd060';
-            draw = (x, y) => { for (let i = 0; i < 3; i++) { ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.fillRect(x - 5 + i * 4, y - 5, 3, 10); } ctx.shadowBlur = 0; };
+            draw = (x, y) => {
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillStyle = col;
+                    ctx.shadowColor = col; ctx.shadowBlur = 8;
+                    ctx.fillRect(x - 5 + i * 4, y - 5, 3, 10);
+                }
+                ctx.shadowBlur = 0;
+            };
         } else if (l.type === 'health') {
             col = '#ff6080';
             draw = (x, y) => {
@@ -188,25 +209,29 @@ export function render() {
         }
         if (draw) {
             const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, 26 * pulse);
-            g.addColorStop(0, `rgba(${hexRgb(col)},0.5)`);
+            g.addColorStop(0,   `rgba(${hexRgb(col)},0.5)`);
             g.addColorStop(0.5, `rgba(${hexRgb(col)},0.2)`);
-            g.addColorStop(1, `rgba(${hexRgb(col)},0)`);
+            g.addColorStop(1,   `rgba(${hexRgb(col)},0)`);
             ctx.fillStyle = g;
             ctx.beginPath(); ctx.arc(l.x, l.y, 26 * pulse, 0, 6.2832); ctx.fill();
             draw(l.x, l.y);
         }
     }
 
-    // МОНСТРЫ
+    /* ============ МОНСТРЫ ============
+       Показываем если: тайл под монстром освещён, ИЛИ монстр ближе 120px
+       (чтобы не били «из тьмы», но и не подсвечивали дальних). */
+    const NEAR_RADIUS = 120;
     for (const m of S.monsters) {
-        const tx = Math.floor(m.x / TILE), ty = Math.floor(m.y / TILE);
-        if (S.explored && !S.explored[ty * S.COLS + tx]) continue;
+        const dNear = Math.hypot(m.x - p.x, m.y - p.y);
+        const visible = dNear < NEAR_RADIUS || isWorldLit(m.x, m.y, nowSec, 0.15);
+        if (!visible) continue;
 
         const pulse = 1 + Math.sin(S.t * 7 + m.id.charCodeAt(1)) * 0.08;
         const g = ctx.createRadialGradient(m.x, m.y, 0, m.x, m.y, 30);
-        g.addColorStop(0, 'rgba(255,40,80,0.6)');
+        g.addColorStop(0,   'rgba(255,40,80,0.6)');
         g.addColorStop(0.5, 'rgba(180,20,60,0.25)');
-        g.addColorStop(1, 'rgba(120,10,40,0)');
+        g.addColorStop(1,   'rgba(120,10,40,0)');
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(m.x, m.y, 30, 0, 6.2832); ctx.fill();
 
@@ -216,6 +241,7 @@ export function render() {
         ctx.shadowColor = '#ff2050'; ctx.shadowBlur = 10;
         ctx.beginPath(); ctx.arc(m.x, m.y - 2, 8 * pulse, 0, 6.2832); ctx.fill();
         ctx.shadowBlur = 0;
+
         ctx.fillStyle = '#ffe040';
         ctx.shadowColor = '#ffe040'; ctx.shadowBlur = 8;
         ctx.beginPath(); ctx.arc(m.x - 3, m.y - 3, 2.2, 0, 6.2832); ctx.fill();
@@ -226,6 +252,7 @@ export function render() {
             ctx.fillStyle = 'rgba(255,255,255,' + (m.hitT * 5) + ')';
             ctx.beginPath(); ctx.arc(m.x, m.y, 16, 0, 6.2832); ctx.fill();
         }
+
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fillRect(m.x - 12, m.y - 20, 24, 4);
         ctx.fillStyle = '#ff2050';
@@ -234,22 +261,27 @@ export function render() {
         ctx.shadowBlur = 0;
     }
 
-    // ЧУЖИЕ ИГРОКИ
+    /* ============ ЧУЖИЕ ИГРОКИ ============ */
     for (const id in S.players) {
         if (+id === S.myId) continue;
         const o = S.players[id];
-        if (o.dead) continue;
+        if (o.dead || o._hidden) continue;
         if (o.effects && o.effects.invisible > 0) continue;
+
+        // В PVP сервер шлёт только видимых — дополнительно проверим тайл, чтобы
+        // не рисовать его на «погасшем» тайле, если игрок забежал в темноту.
+        if (S.mode === 'pvp' && !isWorldLit(o.x, o.y, nowSec, 0.15)) continue;
+
         drawRemotePlayer(ctx, o);
     }
 
-    // СНАРЯДЫ
+    /* ============ СНАРЯДЫ ============ */
     for (const pr of S.projectiles) {
         const wc = WEAPONS[pr.weapon]?.color || '#ffd060';
         const g = ctx.createRadialGradient(pr.x, pr.y, 0, pr.x, pr.y, 14);
-        g.addColorStop(0, `rgba(255,255,255,1)`);
+        g.addColorStop(0,   `rgba(255,255,255,1)`);
         g.addColorStop(0.3, `rgba(${hexRgb(wc)},0.9)`);
-        g.addColorStop(1, `rgba(${hexRgb(wc)},0)`);
+        g.addColorStop(1,   `rgba(${hexRgb(wc)},0)`);
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(pr.x, pr.y, 14, 0, 6.2832); ctx.fill();
         ctx.fillStyle = '#fff';
@@ -258,18 +290,18 @@ export function render() {
         ctx.shadowBlur = 0;
     }
 
-    // ВЗРЫВЫ
+    /* ============ ВЗРЫВЫ ============ */
     for (const ex of S.explosions) {
         const g = ctx.createRadialGradient(ex.x, ex.y, 0, ex.x, ex.y, ex.r);
-        g.addColorStop(0, 'rgba(255,255,220,1)');
+        g.addColorStop(0,   'rgba(255,255,220,1)');
         g.addColorStop(0.3, 'rgba(255,220,100,0.9)');
         g.addColorStop(0.6, 'rgba(255,120,40,0.6)');
-        g.addColorStop(1, 'rgba(255,40,20,0)');
+        g.addColorStop(1,   'rgba(255,40,20,0)');
         ctx.fillStyle = g;
         ctx.beginPath(); ctx.arc(ex.x, ex.y, ex.r, 0, 6.2832); ctx.fill();
     }
 
-    // ЧАСТИЦЫ
+    /* ============ ЧАСТИЦЫ ============ */
     for (const q of S.particles) {
         ctx.fillStyle = q.color;
         ctx.globalAlpha = Math.max(0, q.life / q.max);
@@ -279,7 +311,7 @@ export function render() {
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
 
-    // ВСПЫШКИ АВТО-НОЖА
+    /* ============ ВСПЫШКИ АВТО-НОЖА ============ */
     for (const fx of S.autoMeleeFx) {
         const k = fx.life / fx.max;
         ctx.save();
@@ -299,7 +331,8 @@ export function render() {
 
     ctx.restore();
 
-    // ==== ЗАТЕМНЕНИЕ / ФОНАРИК ====
+    /* ============ СЛОЙ ТЕМНОТЫ / ФОНАРИК ============
+       Атмосферное затемнение поверх всего, поверх — «дырки» от источников света. */
     dctx.globalCompositeOperation = 'source-over';
     dctx.clearRect(0, 0, W, H);
     dctx.fillStyle = 'rgba(10,4,25,0.65)';
@@ -308,7 +341,7 @@ export function render() {
 
     const psx = p.x - camX, psy = p.y - camY;
 
-    // Лут освещает
+    // Лут подсвечивает вокруг себя
     for (const l of S.loot) {
         const sx = l.x - camX, sy = l.y - camY;
         if (sx < -40 || sx > W + 40 || sy < -40 || sy > H + 40) continue;
@@ -319,11 +352,11 @@ export function render() {
         dctx.beginPath(); dctx.arc(sx, sy, 32, 0, 6.2832); dctx.fill();
     }
 
-    // Чужие игроки
+    // Чужие игроки подсвечивают себя
     for (const id in S.players) {
         if (+id === S.myId) continue;
         const o = S.players[id];
-        if (o.dead || (o.effects && o.effects.invisible > 0)) continue;
+        if (o.dead || o._hidden || (o.effects && o.effects.invisible > 0)) continue;
         const sx = (o._rx !== undefined ? o._rx : o.x) - camX;
         const sy = (o._ry !== undefined ? o._ry : o.y) - camY;
         if (sx < -60 || sx > W + 60 || sy < -60 || sy > H + 60) continue;
@@ -334,14 +367,15 @@ export function render() {
         dctx.beginPath(); dctx.arc(sx, sy, 54, 0, 6.2832); dctx.fill();
     }
 
-    // Свет вокруг игрока + конус фонарика
+    // Свет вокруг игрока
     const g0 = dctx.createRadialGradient(psx, psy, 0, psx, psy, 150);
-    g0.addColorStop(0, 'rgba(0,0,0,0.95)');
+    g0.addColorStop(0,   'rgba(0,0,0,0.95)');
     g0.addColorStop(0.5, 'rgba(0,0,0,0.6)');
-    g0.addColorStop(1, 'rgba(0,0,0,0)');
+    g0.addColorStop(1,   'rgba(0,0,0,0)');
     dctx.fillStyle = g0;
     dctx.beginPath(); dctx.arc(psx, psy, 150, 0, 6.2832); dctx.fill();
 
+    // Конус фонарика
     dctx.save();
     dctx.beginPath();
     dctx.moveTo(psx, psy);
@@ -349,9 +383,9 @@ export function render() {
     dctx.closePath();
     dctx.clip();
     const g1 = dctx.createRadialGradient(psx, psy, 0, psx, psy, 320);
-    g1.addColorStop(0, 'rgba(0,0,0,0.99)');
+    g1.addColorStop(0,    'rgba(0,0,0,0.99)');
     g1.addColorStop(0.55, 'rgba(0,0,0,0.7)');
-    g1.addColorStop(1, 'rgba(0,0,0,0)');
+    g1.addColorStop(1,    'rgba(0,0,0,0)');
     dctx.fillStyle = g1;
     dctx.fillRect(0, 0, W, H);
     dctx.restore();
@@ -359,7 +393,7 @@ export function render() {
     dctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(darkCv, 0, 0);
 
-    // Шум
+    /* ============ ШУМ ============ */
     const nx = -Math.floor(Math.random() * 80), ny = -Math.floor(Math.random() * 80);
     ctx.globalAlpha = 0.35;
     ctx.drawImage(noiseCv, nx, ny);
@@ -374,9 +408,11 @@ export function render() {
     drawMinimap();
 }
 
+/* ============ ИГРОКИ ============ */
 function drawLocalPlayer(ctx, p) {
     ctx.save();
     ctx.translate(p.x, p.y);
+
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
     g.addColorStop(0, 'rgba(180,120,255,0.4)');
     g.addColorStop(1, 'rgba(180,120,255,0)');
@@ -395,6 +431,7 @@ function drawLocalPlayer(ctx, p) {
     ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.2832); ctx.fill();
     ctx.fillStyle = '#6a40a0';
     ctx.beginPath(); ctx.arc(0, 0, 6, 0, 6.2832); ctx.fill();
+
     ctx.rotate(p.dir);
     ctx.fillStyle = '#b080ff';
     ctx.shadowColor = '#b080ff'; ctx.shadowBlur = 8;
@@ -431,11 +468,13 @@ function drawRemotePlayer(ctx, o) {
     ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.2832); ctx.fill();
     ctx.fillStyle = '#3a60a0';
     ctx.beginPath(); ctx.arc(0, 0, 6, 0, 6.2832); ctx.fill();
+
     ctx.rotate(o.dir);
     ctx.fillStyle = '#80c0ff';
     ctx.shadowColor = '#80c0ff'; ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(3, -5); ctx.lineTo(3, 5); ctx.closePath(); ctx.fill();
     ctx.shadowBlur = 0;
+
     if (o.weapon !== 'knife') {
         ctx.fillStyle = WEAPONS[o.weapon]?.color || '#ffd060';
         ctx.fillRect(8, -1.4, 10, 2.8);

@@ -1,5 +1,5 @@
-import { S } from './state.js';
-import { TILE } from './config.js';
+import { S, tileBrightness } from './state.js';
+import { TILE, FOG_FADE_TIME } from './config.js';
 
 export function drawMinimap() {
     const mc = document.getElementById('mmcv');
@@ -7,16 +7,17 @@ export function drawMinimap() {
     const mw = mc.width, mh = mc.height;
     if (!S.map) return;
 
+    const nowSec = performance.now() / 1000;
     const sx = mw / S.COLS, sy = mh / S.ROWS;
     mctx.fillStyle = 'rgba(15,8,30,0.9)';
     mctx.fillRect(0, 0, mw, mh);
 
-    // Показываем только то, что исследовано
     for (let y = 0; y < S.ROWS; y++) {
         for (let x = 0; x < S.COLS; x++) {
             const idx = y * S.COLS + x;
-            if (S.explored && !S.explored[idx]) continue;
-
+            const br = tileBrightness(idx, nowSec, FOG_FADE_TIME);
+            if (br <= 0.05) continue;
+            mctx.globalAlpha = br;
             if (S.map[y][x] === '#') {
                 const zone = (Math.floor(x / 8) + Math.floor(y / 6) * 3) % 6;
                 const HUE = [280, 300, 200, 260, 320, 240][zone];
@@ -27,29 +28,28 @@ export function drawMinimap() {
             mctx.fillRect(x * sx, y * sy, Math.max(1, sx), Math.max(1, sy));
         }
     }
+    mctx.globalAlpha = 1;
 
-    // Лут / монстры / игроки — только на исследованной территории
-    const exploredAt = (x, y) => {
-        if (!S.explored) return true;
+    const lit = (x, y) => {
         const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
         if (tx < 0 || ty < 0 || tx >= S.COLS || ty >= S.ROWS) return false;
-        return S.explored[ty * S.COLS + tx] === 1;
+        return tileBrightness(ty * S.COLS + tx, nowSec, FOG_FADE_TIME) > 0.15;
     };
 
     for (const l of S.loot) {
-        if (!exploredAt(l.x, l.y)) continue;
+        if (!lit(l.x, l.y)) continue;
         mctx.fillStyle = '#ffd060';
         mctx.fillRect((l.x / TILE) * sx - 1, (l.y / TILE) * sy - 1, 2, 2);
     }
     for (const m of S.monsters) {
-        if (!exploredAt(m.x, m.y)) continue;
+        if (!lit(m.x, m.y)) continue;
         mctx.fillStyle = '#ff2050';
         mctx.fillRect((m.x / TILE) * sx - 1.5, (m.y / TILE) * sy - 1.5, 3, 3);
     }
     for (const id in S.players) {
         const o = S.players[id];
-        if (o.dead) continue;
-        if (!exploredAt(o.x, o.y) && +id !== S.myId) continue;
+        if (o.dead || o._hidden) continue;
+        if (+id !== S.myId && !lit(o.x, o.y)) continue;
         if (+id === S.myId) mctx.fillStyle = '#7effb0';
         else mctx.fillStyle = (o.effects && o.effects.invisible > 0) ? '#4a4060' : '#80c0ff';
         mctx.fillRect((o.x / TILE) * sx - 1.5, (o.y / TILE) * sy - 1.5, 3, 3);

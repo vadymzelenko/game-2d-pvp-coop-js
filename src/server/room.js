@@ -3,7 +3,8 @@ const {
     WEAPONS, WEAPON_ORDER, POWERUPS,
     LOOT_WEAPONS, LOOT_BASIC, KILL_DROPS,
     SPAWN_PROTECT_SEC, AUTO_MELEE_RANGE, AUTO_MELEE_CD, AUTO_MELEE_DMG,
-    VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS
+    VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS,
+    VISIBILITY_HYSTERESIS
 } = require('./constants');
 const { generateMap } = require('./mapgen');
 
@@ -18,7 +19,7 @@ function solid(map, x, y) {
 function rayWall(map, x0, y0, x1, y1) {
     const dx = x1 - x0, dy = y1 - y0;
     const dist = Math.hypot(dx, dy);
-    const steps = Math.ceil(dist / 8);
+    const steps = Math.ceil(dist / 10);
     for (let i = 1; i <= steps; i++) {
         const t = i / steps;
         const px = x0 + dx * t, py = y0 + dy * t;
@@ -49,10 +50,10 @@ class Room {
         this.map = data.map;
         this.rooms = data.rooms;
 
-        // Туман: в coop — общий, в pvp — на каждого игрока
-        if (mode === 'coop') {
-            this.sharedExplored = new Uint8Array(MAP_W * MAP_H);
-        }
+        // Кэш маркеров для computeVisibleTiles: не аллоцируем Set каждый тик,
+        // а помечаем тайлы «поколением» int. См. _tickGen.
+        this._markers = new Int32Array(MAP_W * MAP_H);
+        this._tickGen = 0;
 
         this.lastTick = Date.now();
         this.spawnLoot();
@@ -125,35 +126,38 @@ class Room {
             score: 0, kills: 0, deaths: 0, dead: false,
             effects: { invisible: 0, speed: 0, shield: 0, damage: 0, spawn: now + SPAWN_PROTECT_SEC },
             cd: 0, respawnT: 0, autoMeleeCd: 0,
-            explored: this.mode === 'coop' ? null : new Uint8Array(MAP_W * MAP_H)
+            // Гистерезис видимости в PVP: _visCache[otherId] = until-время
+            _visCache: {}
         };
         this.players.set(id, pl);
         return pl;
     }
     removePlayer(id) { this.players.delete(id); }
 
-    /* ==== ТУМАН ВОЙНЫ ==== */
-    revealTiles(p) {
-        const explored = this.mode === 'coop' ? this.sharedExplored : p.explored;
-        if (!explored) return [];
-        const newly = [];
+    /* ==== ВИДИМЫЕ ТАЙЛЫ — только текущее поле зрения ====
+       Сервер НЕ хранит «кумулятивный explored». Клиент сам решает, что гаснет.
+       Возвращаем массив индексов тайлов, которые игрок видит ПРЯМО СЕЙЧАС. */
+    computeVisibleTiles(p) {
+        const gen = ++this._tickGen;
+        const marks = this._markers;
+        const indices = [];
         const px = p.x, py = p.y;
         const cx = Math.floor(px / TILE), cy = Math.floor(py / TILE);
 
-        // Ближний круг — всегда виден (вне зависимости от направления)
+        // Ближний круг — виден независимо от направления (спиной чувствуем)
         const R = VIEW_RADIUS;
         for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
             if (dx * dx + dy * dy > R * R + R) continue;
             const tx = cx + dx, ty = cy + dy;
             if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) continue;
             const idx = ty * MAP_W + tx;
-            if (!explored[idx]) { explored[idx] = 1; newly.push(idx); }
+            if (marks[idx] !== gen) { marks[idx] = gen; indices.push(idx); }
         }
 
-        // Конус фонарика с проверкой линии видимости
+        // Конус фонарика с проверкой линии видимости стеной
         const half = VIEW_HALF_ANGLE;
         const range = VIEW_RANGE;
-        const step = TILE * 0.5;
+        const step = TILE;  // 20px — в 2 раза дешевле, чем 10px
         for (let i = 0; i <= FOG_RAYS; i++) {
             const a = p.dir - half + (2 * half) * (i / FOG_RAYS);
             const dx = Math.cos(a), dy = Math.sin(a);
@@ -162,16 +166,15 @@ class Room {
                 const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
                 if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) break;
                 const idx = ty * MAP_W + tx;
-                if (!explored[idx]) { explored[idx] = 1; newly.push(idx); }
+                if (marks[idx] !== gen) { marks[idx] = gen; indices.push(idx); }
                 if (this.map[ty][tx] === '#') break;
             }
         }
-        return newly;
+        return indices;
     }
 
     // Виден ли target игроку viewer (для PVP)
     isVisibleTo(viewer, target) {
-        if (target.dead) return true;
         const dx = target.x - viewer.x, dy = target.y - viewer.y;
         const dist = Math.hypot(dx, dy);
         if (dist > VIEW_RANGE) return false;
@@ -180,7 +183,8 @@ class Room {
             let diff = angle - viewer.dir;
             while (diff >  Math.PI) diff -= 2 * Math.PI;
             while (diff < -Math.PI) diff += 2 * Math.PI;
-            if (Math.abs(diff) > VIEW_HALF_ANGLE + 0.35) return false;
+            // +0.25 рад запаса — чтобы враг не мигал на самом краю конуса
+            if (Math.abs(diff) > VIEW_HALF_ANGLE + 0.25) return false;
         }
         return !rayWall(this.map, viewer.x, viewer.y, target.x, target.y).hit;
     }
@@ -297,17 +301,22 @@ class Room {
             }
         }
     }
+
+    // Вызывается из ws.js через setInterval каждые 400 мс
     respawnLoop() {
         const now = Date.now() / 1000;
         for (const p of this.players.values()) {
             if (p.dead && p.respawnT < now) {
                 const pos = this.findSafeSpawnSpot();
-                p.x = pos.x; p.y = pos.y; p.hp = p.maxHp; p.dead = false;
+                p.x = pos.x; p.y = pos.y;
+                p.hp = p.maxHp;
+                p.dead = false;
                 p.ammo = 30;
                 p.weapons = { pistol: true };
                 p.currentWeapon = 'pistol';
                 p.effects = { invisible: 0, speed: 0, shield: 0, damage: 0, spawn: now + SPAWN_PROTECT_SEC };
                 p.autoMeleeCd = 0;
+                p._visCache = {};
                 try { p.ws.send(JSON.stringify({ type: 'respawn', x: p.x, y: p.y })); } catch (e) {}
             }
         }
@@ -344,7 +353,8 @@ class Room {
             else {
                 m.wander -= dt;
                 if (m.wander <= 0) { m.wander = 1 + Math.random() * 2; m.wa = Math.random() * Math.PI * 2; }
-                vx = Math.cos(m.wa) * m.speed * 0.4; vy = Math.sin(m.wa) * m.speed * 0.4;
+                vx = Math.cos(m.wa) * m.speed * 0.4;
+                vy = Math.sin(m.wa) * m.speed * 0.4;
             }
             const nx = m.x + vx * dt;
             if (!solid(this.map, nx, m.y)) m.x = nx;
@@ -452,36 +462,40 @@ class Room {
         }
         for (const l of this.loot) if (l.taken && now * 1000 > l.respawn) l.taken = false;
 
-        /* --- ТУМАН ВОЙНЫ --- */
-        const revealedForPlayer = new Map();
+        /* ==== ВИДИМЫЕ ТАЙЛЫ ДЛЯ КАЖДОГО ==== */
+        const perPlayerVisible = new Map();
         if (this.mode === 'coop') {
+            // В кооперативе туман общий: объединяем всё, что видят живые
             const combined = new Set();
             for (const [, p] of this.players) {
                 if (p.dead) continue;
-                for (const t of this.revealTiles(p)) combined.add(t);
+                for (const t of this.computeVisibleTiles(p)) combined.add(t);
             }
             const arr = Array.from(combined);
-            for (const [id] of this.players) revealedForPlayer.set(id, arr);
+            for (const [id] of this.players) perPlayerVisible.set(id, arr);
         } else {
             for (const [id, p] of this.players) {
-                if (p.dead) continue;
-                revealedForPlayer.set(id, this.revealTiles(p));
+                if (p.dead) { perPlayerVisible.set(id, []); continue; }
+                perPlayerVisible.set(id, this.computeVisibleTiles(p));
             }
         }
 
-        /* --- Общая часть state --- */
-        const baseState = {
-            type: 'state',
-            monsters: [], loot: [], projectiles: [], explosions: []
-        };
+        /* ==== Общая часть state (одинакова для всех) ==== */
+        const monstersArr = [];
         for (const m of this.monsters)
-            baseState.monsters.push({ id: m.id, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, hitT: m.hitT });
+            monstersArr.push({ id: m.id, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, hitT: m.hitT });
+
+        const lootArr = [];
         for (const l of this.loot)
-            if (!l.taken) baseState.loot.push({ id: l.id, x: l.x, y: l.y, type: l.type });
+            if (!l.taken) lootArr.push({ id: l.id, x: l.x, y: l.y, type: l.type });
+
+        const projArr = [];
         for (const pr of this.projectiles)
-            baseState.projectiles.push({ id: pr.id, x: pr.x, y: pr.y, weapon: pr.weapon });
+            projArr.push({ id: pr.id, x: pr.x, y: pr.y, weapon: pr.weapon });
+
+        const explArr = [];
         for (const e of this.explosions)
-            baseState.explosions.push({ x: e.x, y: e.y, r: e.maxR * (1 - e.life / e.maxLife) });
+            explArr.push({ x: e.x, y: e.y, r: e.maxR * (1 - e.life / e.maxLife) });
 
         // Сериализация игроков один раз
         const serializedPlayers = {};
@@ -500,28 +514,34 @@ class Room {
             };
         }
 
-        /* --- Персонализированный state --- */
+        /* ==== Персональная рассылка ==== */
         for (const [pid, p] of this.players) {
             if (p.ws.readyState !== 1) continue;
             const personalState = {
                 type: 'state',
                 players: {},
-                monsters: baseState.monsters,
-                loot: baseState.loot,
-                projectiles: baseState.projectiles,
-                explosions: baseState.explosions,
-                explored: revealedForPlayer.get(pid) || []
+                monsters: monstersArr,
+                loot: lootArr,
+                projectiles: projArr,
+                explosions: explArr,
+                visible: perPlayerVisible.get(pid) || []
             };
             for (const [oid, op] of this.players) {
-                if (oid === pid) { personalState.players[oid] = serializedPlayers[oid]; continue; }
+                if (oid === pid) {
+                    personalState.players[oid] = serializedPlayers[oid];
+                    continue;
+                }
                 if (this.mode === 'coop') {
                     personalState.players[oid] = serializedPlayers[oid];
-                } else {
-                    // PVP: показываем только видимых
-                    if (op.effects.invisible > now && !op.dead) continue;
-                    if (!this.isVisibleTo(p, op)) continue;
-                    personalState.players[oid] = serializedPlayers[oid];
+                    continue;
                 }
+                // PVP: невидимые/за щитом — не отправляем вовсе
+                if (op.effects.invisible > now && !op.dead) continue;
+
+                const visibleNow = !op.dead && this.isVisibleTo(p, op);
+                if (visibleNow) p._visCache[oid] = now + VISIBILITY_HYSTERESIS;
+                const inCache = now < (p._visCache[oid] || 0);
+                if (inCache) personalState.players[oid] = serializedPlayers[oid];
             }
             try { p.ws.send(JSON.stringify(personalState)); } catch (e) {}
         }

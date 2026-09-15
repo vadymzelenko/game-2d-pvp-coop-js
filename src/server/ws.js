@@ -1,4 +1,5 @@
 const { Room } = require('./room');
+const { MAP_W, MAP_H } = require('./constants');
 
 const rooms = new Map();
 let nextPlayerId = 1;
@@ -43,7 +44,7 @@ function handleConnection(ws) {
             ws.playerId = id; ws.roomCode = code;
             ws.send(JSON.stringify({
                 type: 'joined', id, code, mode: room.mode, mapType: room.mapType,
-                map: room.map, mapW: require('./constants').MAP_W, mapH: require('./constants').MAP_H,
+                map: room.map, mapW: MAP_W, mapH: MAP_H,
                 players: Array.from(room.players.values()).map(x => ({ id: x.id, name: x.name }))
             }));
             console.log(`[room ${code}] created by ${p.name} (${room.mode}/${room.mapType})`);
@@ -57,7 +58,7 @@ function handleConnection(ws) {
             ws.playerId = id; ws.roomCode = msg.room;
             ws.send(JSON.stringify({
                 type: 'joined', id, code: msg.room, mode: room.mode, mapType: room.mapType,
-                map: room.map, mapW: require('./constants').MAP_W, mapH: require('./constants').MAP_H,
+                map: room.map, mapW: MAP_W, mapH: MAP_H,
                 players: Array.from(room.players.values()).map(x => ({ id: x.id, name: x.name }))
             }));
             room.broadcast({ type: 'player_joined', id, name: p.name }, id);
@@ -113,5 +114,13 @@ function handleConnection(ws) {
 
     ws.on('close', () => leave(ws));
 }
+
+/* ==== ГЛОБАЛЬНЫЙ ТИК ВОЗРОЖДЕНИЯ ====
+   Вот эта строчка отсутствовала — из-за неё мёртвые игроки не воскресали. */
+setInterval(() => {
+    for (const r of rooms.values()) {
+        try { r.respawnLoop(); } catch (e) { console.error('respawn loop error', e); }
+    }
+}, 400);
 
 module.exports = { handleConnection };

@@ -1,4 +1,4 @@
-import { S, applyFogDelta, resetFog } from './state.js';
+import { S, resetFog, markVisible } from './state.js';
 import { updateLobbyList, updateHUD, toast, killfeed, showErr, onJoined, onGameOver } from './hud.js';
 import { blip } from './audio.js';
 
@@ -29,20 +29,45 @@ export function handleMsg(msg) {
             S.ROWS = msg.mapH;
             S.MAPW = msg.mapW * 20;
             S.MAPH = msg.mapH * 20;
+            S.players = {};
             resetFog();
             onJoined(msg);
             break;
 
         case 'player_joined': killfeed(`+ ${msg.name}`); break;
-        case 'player_left':   killfeed(`− игрок вышел`); break;
+        case 'player_left':
+            killfeed(`− игрок вышел`);
+            if (msg.id != null) delete S.players[msg.id];
+            break;
 
         case 'state': {
-            S.players = msg.players;
+            // === ГЛАВНЫЙ ФИКС ТЕЛЕПОРТА ===
+            // Помечаем всех как «не пришёл в этом пакете», затем обновляем тех,
+            // кто пришёл, СОХРАНЯЯ интерполяционное состояние (_rx/_ry/_tx/_ty).
+            for (const id in S.players) S.players[id]._hidden = true;
+
+            const incoming = msg.players;
+            for (const id in incoming) {
+                const np = incoming[id];
+                const old = S.players[id];
+                if (old && old._rx !== undefined) {
+                    np._rx = old._rx; np._ry = old._ry;
+                    np._tx = old._tx; np._ty = old._ty;
+                } else {
+                    np._rx = np.x; np._ry = np.y;
+                    np._tx = np.x; np._ty = np.y;
+                }
+                np._hidden = false;
+                S.players[id] = np;
+            }
+
             S.monsters = msg.monsters;
             S.loot = msg.loot;
             S.projectiles = msg.projectiles;
             S.explosions = msg.explosions;
-            applyFogDelta(msg.explored);
+
+            // Обновляем тайминги у тайлов, что сервер прислал в этом тике
+            if (msg.visible) markVisible(msg.visible, performance.now() / 1000);
 
             const me = S.players[S.myId];
             if (me) {
@@ -59,15 +84,18 @@ export function handleMsg(msg) {
                 const wasDead = S.player.dead;
                 S.player.dead = me.dead;
                 document.getElementById('dead').classList.toggle('on', me.dead);
-                if (me.dead && !wasDead) { /* just died */ }
+                if (!me.dead && wasDead) {
+                    // Сервер уже прислал respawn отдельным сообщением — здесь
+                    // просто гарантируем, что клиент ожил и позиция верна.
+                    S.player.x = me.x; S.player.y = me.y;
+                }
                 updateHUD();
             }
 
-            // Интерполяция чужих игроков
+            // Цели интерполяции обновляем каждый тик
             for (const id in S.players) {
                 if (+id === S.myId) continue;
                 const o = S.players[id];
-                if (o._tx === undefined) { o._tx = o.x; o._ty = o.y; o._rx = o.x; o._ry = o.y; }
                 o._tx = o.x; o._ty = o.y;
             }
             break;
@@ -85,6 +113,9 @@ export function handleMsg(msg) {
             S.player.x = msg.x;
             S.player.y = msg.y;
             S.player.dead = false;
+            // Обнуляем интерполяцию камеры, чтобы не «догоняла» со старой точки
+            S.camX = Math.max(0, msg.x - window.innerWidth / 2);
+            S.camY = Math.max(0, msg.y - window.innerHeight / 2);
             document.getElementById('dead').classList.remove('on');
             toast('ВЫ ПОД ЗАЩИТОЙ');
             break;
@@ -101,13 +132,8 @@ export function handleMsg(msg) {
             break;
         }
 
-        case 'gameover':
-            onGameOver(msg);
-            break;
-
-        case 'reset':
-            toast('НОВЫЙ РАУНД');
-            break;
+        case 'gameover': onGameOver(msg); break;
+        case 'reset': toast('НОВЫЙ РАУНД'); break;
     }
 }
 

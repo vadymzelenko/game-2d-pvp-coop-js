@@ -21,3 +21,5 @@ export const POWERUP_INFO = {
     health:    { color:'#ff6080', icon:'✚', label:'АПТЕЧКА' },
     spawn:     { color:'#7effb0', icon:'🛡', label:'ЗАЩИТА' }
 };
+
+export const FOG_FADE_TIME = 8;
