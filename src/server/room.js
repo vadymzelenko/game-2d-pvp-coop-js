@@ -4,13 +4,14 @@ const {
     LOOT_WEAPONS, LOOT_BASIC, KILL_DROPS,
     SPAWN_PROTECT_SEC, AUTO_MELEE_RANGE, AUTO_MELEE_CD, AUTO_MELEE_DMG,
     VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS,
-    VISIBILITY_HYSTERESIS
+    VISIBILITY_HYSTERESIS,
+    REVEAL_TIME, REVEAL_RADIUS
 } = require('./constants');
 const { generateMap } = require('./mapgen');
 
 let nextEntityId = 1;
 
-/* ==== Геометрия ==== */
+/* ================= ГЕОМЕТРИЯ ================= */
 function solid(map, x, y) {
     const cx = Math.floor(x / TILE), cy = Math.floor(y / TILE);
     if (cx < 0 || cy < 0 || cx >= MAP_W || cy >= MAP_H) return true;
@@ -35,11 +36,13 @@ function segCircleDist(x0, y0, x1, y1, cx, cy) {
     return Math.hypot((x0 + dx * t) - cx, (y0 + dy * t) - cy);
 }
 
+/* ================= КОМНАТА ================= */
 class Room {
-    constructor(code, mode, mapType) {
+    constructor(code, mode, mapType, monstersEnabled = true) {
         this.code = code;
-        this.mode = mode;                 // 'pvp' | 'coop'
+        this.mode = mode;                                 // 'pvp' | 'coop'
         this.mapType = mapType || 'rooms';
+        this.monstersEnabled = monstersEnabled !== false;
         this.players = new Map();
         this.monsters = [];
         this.loot = [];
@@ -50,18 +53,18 @@ class Room {
         this.map = data.map;
         this.rooms = data.rooms;
 
-        // Кэш маркеров для computeVisibleTiles: не аллоцируем Set каждый тик,
-        // а помечаем тайлы «поколением» int. См. _tickGen.
+        // Кэш пометки тайлов «поколением» — позволяет не аллоцировать Set
+        // каждый тик и избегать дублей в массиве visible.
         this._markers = new Int32Array(MAP_W * MAP_H);
         this._tickGen = 0;
 
         this.lastTick = Date.now();
         this.spawnLoot();
-        this.spawnMonsters();
+        if (this.monstersEnabled) this.spawnMonsters();
         this.interval = setInterval(() => this.tick(), 40);
     }
 
-    /* ==== Спавн ==== */
+    /* ---------- Спавн ---------- */
     findOpenSpot() {
         for (let i = 0; i < 500; i++) {
             const x = (2 + Math.random() * (MAP_W - 4)) * TILE;
@@ -84,7 +87,6 @@ class Room {
         }
         return best || this.findOpenSpot();
     }
-
     spawnLoot() {
         for (let i = 0; i < 32; i++) {
             const p = this.findOpenSpot();
@@ -126,17 +128,17 @@ class Room {
             score: 0, kills: 0, deaths: 0, dead: false,
             effects: { invisible: 0, speed: 0, shield: 0, damage: 0, spawn: now + SPAWN_PROTECT_SEC },
             cd: 0, respawnT: 0, autoMeleeCd: 0,
-            // Гистерезис видимости в PVP: _visCache[otherId] = until-время
-            _visCache: {}
+            _visCache: {},          // otherId -> until (сек), гистерезис видимости
+            lastShotAt: 0           // сек — звуковая засветка
         };
         this.players.set(id, pl);
         return pl;
     }
     removePlayer(id) { this.players.delete(id); }
 
-    /* ==== ВИДИМЫЕ ТАЙЛЫ — только текущее поле зрения ====
-       Сервер НЕ хранит «кумулятивный explored». Клиент сам решает, что гаснет.
-       Возвращаем массив индексов тайлов, которые игрок видит ПРЯМО СЕЙЧАС. */
+    /* ---------- ВИДИМЫЕ ТАЙЛЫ (текущее поле зрения) ----------
+       Возвращает массив индексов тайлов, которые игрок видит ПРЯМО СЕЙЧАС.
+       Клиент сам решает, что уже погасло (хранит timestamps у себя). */
     computeVisibleTiles(p) {
         const gen = ++this._tickGen;
         const marks = this._markers;
@@ -144,7 +146,7 @@ class Room {
         const px = p.x, py = p.y;
         const cx = Math.floor(px / TILE), cy = Math.floor(py / TILE);
 
-        // Ближний круг — виден независимо от направления (спиной чувствуем)
+        // Ближний круг — видно независимо от направления
         const R = VIEW_RADIUS;
         for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
             if (dx * dx + dy * dy > R * R + R) continue;
@@ -154,10 +156,10 @@ class Room {
             if (marks[idx] !== gen) { marks[idx] = gen; indices.push(idx); }
         }
 
-        // Конус фонарика с проверкой линии видимости стеной
+        // Конус фонарика с прерыванием о стену
         const half = VIEW_HALF_ANGLE;
         const range = VIEW_RANGE;
-        const step = TILE;  // 20px — в 2 раза дешевле, чем 10px
+        const step = TILE;
         for (let i = 0; i <= FOG_RAYS; i++) {
             const a = p.dir - half + (2 * half) * (i / FOG_RAYS);
             const dx = Math.cos(a), dy = Math.sin(a);
@@ -173,7 +175,7 @@ class Room {
         return indices;
     }
 
-    // Виден ли target игроку viewer (для PVP)
+    // Может ли viewer «видеть глазами» target (для PVP)
     isVisibleTo(viewer, target) {
         const dx = target.x - viewer.x, dy = target.y - viewer.y;
         const dist = Math.hypot(dx, dy);
@@ -183,19 +185,22 @@ class Room {
             let diff = angle - viewer.dir;
             while (diff >  Math.PI) diff -= 2 * Math.PI;
             while (diff < -Math.PI) diff += 2 * Math.PI;
-            // +0.25 рад запаса — чтобы враг не мигал на самом краю конуса
+            // +0.25 рад — анти-мерцание на краю конуса
             if (Math.abs(diff) > VIEW_HALF_ANGLE + 0.25) return false;
         }
         return !rayWall(this.map, viewer.x, viewer.y, target.x, target.y).hit;
     }
 
-    /* ==== Стрельба и урон ==== */
+    /* ---------- Стрельба / урон ---------- */
     fireWeapon(player, dirX, dirY) {
         const now = Date.now() / 1000;
         if (player.cd > now) return;
         const wName = player.currentWeapon;
         const w = WEAPONS[wName];
         if (!w) return;
+
+        // Отмечаем звук — даже если выстрел «мимо» и даже для melee
+        player.lastShotAt = now;
 
         if (w.melee) {
             player.cd = now + w.cd;
@@ -243,7 +248,9 @@ class Room {
         this.monsters = this.monsters.filter(x => x !== m);
         if (killer) killer.score++;
         this.dropPowerup(m.x, m.y);
+        if (!this.monstersEnabled) return;
         setTimeout(() => {
+            if (!this.monstersEnabled) return;
             if (!this.players.size) return;
             const p = this.findOpenSpot();
             this.monsters.push({
@@ -302,7 +309,7 @@ class Room {
         }
     }
 
-    // Вызывается из ws.js через setInterval каждые 400 мс
+    /* ---------- Респавн (вызывается из ws.js каждые ~400 мс) ---------- */
     respawnLoop() {
         const now = Date.now() / 1000;
         for (const p of this.players.values()) {
@@ -317,6 +324,7 @@ class Room {
                 p.effects = { invisible: 0, speed: 0, shield: 0, damage: 0, spawn: now + SPAWN_PROTECT_SEC };
                 p.autoMeleeCd = 0;
                 p._visCache = {};
+                p.lastShotAt = 0;
                 try { p.ws.send(JSON.stringify({ type: 'respawn', x: p.x, y: p.y })); } catch (e) {}
             }
         }
@@ -330,7 +338,7 @@ class Room {
         }
     }
 
-    /* ==== Главный тик ==== */
+    /* ================= ГЛАВНЫЙ ТИК ================= */
     tick() {
         const now = Date.now() / 1000;
         const dt = Math.min(0.1, (Date.now() - this.lastTick) / 1000);
@@ -339,7 +347,7 @@ class Room {
         for (const p of this.players.values())
             for (const k in p.effects) if (p.effects[k] < now) p.effects[k] = 0;
 
-        /* --- Монстры --- */
+        /* ---- Монстры ---- */
         for (const m of this.monsters) {
             if (m.hitT > 0) m.hitT -= dt;
             let target = null, td = 99999;
@@ -360,10 +368,13 @@ class Room {
             if (!solid(this.map, nx, m.y)) m.x = nx;
             const ny = m.y + vy * dt;
             if (!solid(this.map, m.x, ny)) m.y = ny;
-            if (target && td < 20 && now - m.atk > 1) { m.atk = now; this.hurtPlayer(target.id, m.dmg, 'monster'); }
+            if (target && td < 20 && now - m.atk > 1) {
+                m.atk = now;
+                this.hurtPlayer(target.id, m.dmg, 'monster');
+            }
         }
 
-        /* --- Авто-нож --- */
+        /* ---- Авто-нож ---- */
         for (const p of this.players.values()) {
             if (p.dead || p.effects.spawn > now || p.autoMeleeCd > now) continue;
             let nearest = null, nd = AUTO_MELEE_RANGE;
@@ -380,7 +391,7 @@ class Room {
             }
         }
 
-        /* --- Снаряды --- */
+        /* ---- Снаряды ---- */
         for (let i = this.projectiles.length - 1; i >= 0; i--) {
             const pr = this.projectiles[i];
             if (pr.homing) {
@@ -462,10 +473,9 @@ class Room {
         }
         for (const l of this.loot) if (l.taken && now * 1000 > l.respawn) l.taken = false;
 
-        /* ==== ВИДИМЫЕ ТАЙЛЫ ДЛЯ КАЖДОГО ==== */
+        /* ---- ВИДИМЫЕ ТАЙЛЫ ---- */
         const perPlayerVisible = new Map();
         if (this.mode === 'coop') {
-            // В кооперативе туман общий: объединяем всё, что видят живые
             const combined = new Set();
             for (const [, p] of this.players) {
                 if (p.dead) continue;
@@ -480,7 +490,7 @@ class Room {
             }
         }
 
-        /* ==== Общая часть state (одинакова для всех) ==== */
+        /* ---- Общая часть state ---- */
         const monstersArr = [];
         for (const m of this.monsters)
             monstersArr.push({ id: m.id, x: m.x, y: m.y, hp: m.hp, maxHp: m.maxHp, hitT: m.hitT });
@@ -514,7 +524,7 @@ class Room {
             };
         }
 
-        /* ==== Персональная рассылка ==== */
+        /* ---- Персональная рассылка ---- */
         for (const [pid, p] of this.players) {
             if (p.ws.readyState !== 1) continue;
             const personalState = {
@@ -526,6 +536,7 @@ class Room {
                 explosions: explArr,
                 visible: perPlayerVisible.get(pid) || []
             };
+
             for (const [oid, op] of this.players) {
                 if (oid === pid) {
                     personalState.players[oid] = serializedPlayers[oid];
@@ -535,13 +546,26 @@ class Room {
                     personalState.players[oid] = serializedPlayers[oid];
                     continue;
                 }
-                // PVP: невидимые/за щитом — не отправляем вовсе
-                if (op.effects.invisible > now && !op.dead) continue;
 
-                const visibleNow = !op.dead && this.isVisibleTo(p, op);
-                if (visibleNow) p._visCache[oid] = now + VISIBILITY_HYSTERESIS;
-                const inCache = now < (p._visCache[oid] || 0);
-                if (inCache) personalState.players[oid] = serializedPlayers[oid];
+                // PVP: решение о включении в персональный state
+                const dead = op.dead;
+                const invisible = (op.effects.invisible > now) && !dead;
+                const visibleBySight = !dead && !invisible && this.isVisibleTo(p, op);
+
+                if (visibleBySight) p._visCache[oid] = now + VISIBILITY_HYSTERESIS;
+                const inCache = !dead && !invisible && now < (p._visCache[oid] || 0);
+
+                // Звук выстрела: видим даже сквозь стены и невидимость, если рядом
+                const revealedBySound = !dead
+                    && (now - (op.lastShotAt || 0)) < REVEAL_TIME
+                    && Math.hypot(op.x - p.x, op.y - p.y) < REVEAL_RADIUS;
+
+                if (visibleBySight || inCache) {
+                    personalState.players[oid] = serializedPlayers[oid];
+                } else if (revealedBySound) {
+                    // Клонируем: shared-объект не должен получить флаг revealed
+                    personalState.players[oid] = Object.assign({}, serializedPlayers[oid], { revealed: true });
+                }
             }
             try { p.ws.send(JSON.stringify(personalState)); } catch (e) {}
         }

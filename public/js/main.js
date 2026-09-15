@@ -1,7 +1,7 @@
 import { S } from './state.js';
 import { WEAPONS, WEAPON_ORDER } from './config.js';
 import { connectWS, sendMsg } from './net.js';
-import { initInput, keys, joy, tryFire } from './input.js';
+import { initInput, keys, joy, aim, tryFire } from './input.js';
 import { setupCanvas, render, getCanvasInfo } from './render.js';
 import { updateHUD, showErr, toast } from './hud.js';
 
@@ -30,9 +30,10 @@ Object.entries(mapBtns).forEach(([type, id]) => {
 
 document.getElementById('btnCreate').addEventListener('click', async () => {
     const name = (document.getElementById('nameInp').value.trim() || 'Player').slice(0, 14);
+    const monsters = !document.getElementById('noMonsters').checked;
     try {
         const ws = await connectWS();
-        ws.send(JSON.stringify({ type: 'create', name, mode: createMode, mapType: createMap }));
+        ws.send(JSON.stringify({ type: 'create', name, mode: createMode, mapType: createMap, monsters }));
     } catch (e) { showErr('Не удалось подключиться'); }
 });
 
@@ -75,7 +76,14 @@ document.getElementById('btnStart').addEventListener('click', () => {
     toast('ВЫ ПОД ЗАЩИТОЙ');
 });
 
-/* ==== Обновление ==== */
+/* ==== SOLID ==== */
+function solid(x, y) {
+    const cx = Math.floor(x / 20), cy = Math.floor(y / 20);
+    if (cx < 0 || cy < 0 || cx >= S.COLS || cy >= S.ROWS) return true;
+    return S.map[cy][cx] === '#';
+}
+
+/* ==== UPDATE ==== */
 let last = performance.now();
 
 function update(dt) {
@@ -85,10 +93,10 @@ function update(dt) {
     if (p.dead) return;
 
     let dx = 0, dy = 0;
-    if (keys['arrowleft'] || keys['a']) dx -= 1;
+    if (keys['arrowleft']  || keys['a']) dx -= 1;
     if (keys['arrowright'] || keys['d']) dx += 1;
-    if (keys['arrowup'] || keys['w']) dy -= 1;
-    if (keys['arrowdown'] || keys['s']) dy += 1;
+    if (keys['arrowup']    || keys['w']) dy -= 1;
+    if (keys['arrowdown']  || keys['s']) dy += 1;
     if (joy.active) { dx += joy.dx; dy += joy.dy; }
 
     const speedMul = (p.effects.speed > 0) ? 1.7 : 1;
@@ -102,8 +110,15 @@ function update(dt) {
         if (!solid(p.x, ny)) p.y = ny;
     }
 
+    // ==== СТРЕЛЬБА ====
+    // 1) Мышь: авто-огонь только для auto-оружия
+    // 2) Правый стик: пока вытянут за порог — огонь с темпом текущего оружия
     S.firingCd -= dt;
     if (S.autoFire && WEAPONS[p.weapon]?.auto && S.firingCd <= 0) {
+        tryFire();
+        S.firingCd = WEAPONS[p.weapon].cd;
+    }
+    if (aim.active && aim.firing && S.firingCd <= 0) {
         tryFire();
         S.firingCd = WEAPONS[p.weapon].cd;
     }
@@ -123,7 +138,6 @@ function update(dt) {
         if (S.autoMeleeFx[i].life <= 0) S.autoMeleeFx.splice(i, 1);
     }
 
-    // Интерполяция чужих игроков
     for (const id in S.players) {
         if (+id === S.myId) continue;
         const o = S.players[id];
@@ -132,25 +146,17 @@ function update(dt) {
         o._ry += (o._ty - o._ry) * Math.min(1, dt * 16);
     }
 
-    // Сетевой тик 20 Гц
     const now = performance.now();
     if (now - S.lastSend > 50) {
         S.lastSend = now;
         sendMsg({ type: 'input', x: p.x, y: p.y, dir: p.dir });
     }
 
-    // Камера
     const { W, H } = getCanvasInfo();
     S.camX += (p.x - W / 2 - S.camX) * Math.min(1, dt * 12);
     S.camY += (p.y - H / 2 - S.camY) * Math.min(1, dt * 12);
     S.camX = Math.max(0, Math.min(S.MAPW - W, S.camX));
     S.camY = Math.max(0, Math.min(S.MAPH - H, S.camY));
-}
-
-function solid(x, y) {
-    const cx = Math.floor(x / 20), cy = Math.floor(y / 20);
-    if (cx < 0 || cy < 0 || cx >= S.COLS || cy >= S.ROWS) return true;
-    return S.map[cy][cx] === '#';
 }
 
 function loop(now) {
@@ -162,7 +168,7 @@ function loop(now) {
     requestAnimationFrame(loop);
 }
 
-/* ==== Инициализация ==== */
+/* ==== INIT ==== */
 setupCanvas();
 initInput();
 window.addEventListener('resize', () => { setupCanvas(); });

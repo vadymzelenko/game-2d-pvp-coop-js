@@ -28,13 +28,18 @@ const AUTO_MELEE_RANGE  = 24;
 const AUTO_MELEE_CD     = 0.45;
 const AUTO_MELEE_DMG    = 26;
 
-/* ==== ТУМАН ВОЙНЫ ==== */
-const VIEW_RANGE      = 16 * TILE;   // дальность фонарика
-const VIEW_HALF_ANGLE = 0.65;        // половина угла конуса (~37°)
-const VIEW_RADIUS     = 3;           // tiles — «близкий круг» вокруг игрока
-const FOG_RAYS        = 40;          // кол-во лучей для конуса
+const VIEW_RANGE      = 16 * TILE;
+const VIEW_HALF_ANGLE = 0.65;
+const VIEW_RADIUS     = 3;
+const FOG_RAYS        = 40;
 
 const VISIBILITY_HYSTERESIS = 0.4;
+
+/* ==== ЗВУКОВАЯ ЗАСВЕТКА ====
+   После выстрела игрок «слышен» соседям в течение REVEAL_TIME секунд,
+   если они ближе REVEAL_RADIUS. Работает и через стены, и в невидимости. */
+const REVEAL_TIME   = 2.5;
+const REVEAL_RADIUS = 360;
 
 module.exports = {
     TILE, MAP_W, MAP_H,
@@ -42,5 +47,6 @@ module.exports = {
     POWERUPS, LOOT_WEAPONS, LOOT_BASIC, KILL_DROPS,
     SPAWN_PROTECT_SEC, AUTO_MELEE_RANGE, AUTO_MELEE_CD, AUTO_MELEE_DMG,
     VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS,
-    VISIBILITY_HYSTERESIS
+    VISIBILITY_HYSTERESIS,
+    REVEAL_TIME, REVEAL_RADIUS
 };

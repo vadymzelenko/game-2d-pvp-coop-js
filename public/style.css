@@ -130,17 +130,38 @@ input[type=text]:focus{border-color:#c080ff;box-shadow:0 0 18px rgba(180,120,255
 .plist .p{color:var(--green);text-shadow:0 0 8px #0fa}
 .hintbar{font-size:9px;color:#6a4bb8;letter-spacing:1px;margin-top:16px;line-height:1.6;text-shadow:0 0 6px #4020a0}
 
-/* МОБИЛЬНОЕ УПРАВЛЕНИЕ */
+/* ============ МОБИЛЬНОЕ УПРАВЛЕНИЕ ============ */
 #mob{position:fixed;inset:0;display:none;pointer-events:none;z-index:15}
 #mob.on{display:block}
+
+/* Левый стик — движение */
 #joyZone{position:absolute;left:calc(14px + var(--safe-l));bottom:calc(14px + var(--safe-b));
-    width:clamp(110px,32vw,150px);height:clamp(110px,32vw,150px);pointer-events:auto;touch-action:none}
+    width:clamp(120px,34vw,160px);height:clamp(120px,34vw,160px);pointer-events:auto;touch-action:none}
 #joyBase{position:absolute;left:50%;top:50%;width:92%;height:92%;margin-left:-46%;margin-top:-46%;
     border-radius:50%;background:radial-gradient(circle,rgba(60,30,120,.55),rgba(30,10,60,.35));
     border:1px solid rgba(180,120,255,.5);box-shadow:0 0 20px rgba(140,80,255,.5)}
 #joyKnob{position:absolute;left:50%;top:50%;width:40%;height:40%;margin-left:-20%;margin-top:-20%;
     border-radius:50%;background:radial-gradient(circle,rgba(220,180,255,.7),rgba(120,60,200,.5));
     border:1px solid rgba(220,180,255,.8);box-shadow:0 0 18px rgba(200,140,255,.7)}
+
+/* Правый стик — прицел + огонь */
+#aimZone{position:absolute;right:calc(14px + var(--safe-r));bottom:calc(14px + var(--safe-b));
+    width:clamp(120px,34vw,160px);height:clamp(120px,34vw,160px);pointer-events:auto;touch-action:none}
+#aimBase{position:absolute;left:50%;top:50%;width:92%;height:92%;margin-left:-46%;margin-top:-46%;
+    border-radius:50%;background:radial-gradient(circle,rgba(60,30,120,.55),rgba(30,10,60,.35));
+    border:1px solid rgba(180,120,255,.5);box-shadow:0 0 20px rgba(140,80,255,.5);
+    transition:box-shadow .12s, border-color .12s}
+#aimKnob{position:absolute;left:50%;top:50%;width:40%;height:40%;margin-left:-20%;margin-top:-20%;
+    border-radius:50%;background:radial-gradient(circle,rgba(220,180,255,.7),rgba(120,60,200,.5));
+    border:1px solid rgba(220,180,255,.8);box-shadow:0 0 18px rgba(200,140,255,.7);
+    transition:background .12s, box-shadow .12s, border-color .12s}
+/* Когда стик вытянут дальше порога — «боевое» состояние */
+#aimBase.firing{border-color:rgba(255,120,120,.9);
+    box-shadow:0 0 30px rgba(255,80,80,.7),0 0 12px rgba(255,80,80,.5) inset}
+#aimKnob.firing{background:radial-gradient(circle,rgba(255,190,190,.95),rgba(200,60,60,.75));
+    border-color:rgba(255,210,210,.95);box-shadow:0 0 24px rgba(255,120,120,.9)}
+
+/* Вспомогательные кнопки */
 .mBtn{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(80,40,160,.85),rgba(30,10,60,.7));
     border:1px solid rgba(200,140,255,.6);color:#f0e0ff;font-family:inherit;
     font-size:clamp(9px,2.6vw,11px);letter-spacing:1px;pointer-events:auto;touch-action:manipulation;
@@ -148,19 +169,18 @@ input[type=text]:focus{border-color:#c080ff;box-shadow:0 0 18px rgba(180,120,255
     box-shadow:0 0 16px rgba(140,80,255,.6);text-shadow:0 0 6px #6020a0;font-weight:bold}
 .mBtn:active{background:radial-gradient(circle,rgba(140,80,220,.95),rgba(60,20,120,.8));
     box-shadow:0 0 26px rgba(200,140,255,1);transform:scale(.94)}
-#bAtk{right:calc(14px + var(--safe-r));bottom:calc(14px + var(--safe-b));
-    width:clamp(70px,20vw,92px);height:clamp(70px,20vw,92px);font-size:clamp(11px,3vw,14px);
-    background:radial-gradient(circle,rgba(160,40,60,.85),rgba(60,10,20,.7));
-    border-color:rgba(255,120,140,.7);box-shadow:0 0 20px rgba(255,80,120,.6)}
-#bAtk:active{background:radial-gradient(circle,rgba(220,60,100,.95),rgba(120,20,40,.8))}
-#bUse{right:calc(96px + var(--safe-r) + 14px);bottom:calc(14px + var(--safe-b));
+
+/* ВЗЯТЬ — слева над аим-стиком */
+#bUse{right:calc(14px + var(--safe-r) + 105px);bottom:calc(14px + var(--safe-b) + 170px);
     width:clamp(52px,15vw,64px);height:clamp(52px,15vw,64px)}
-#bSwitch{right:calc(14px + var(--safe-r));bottom:calc(96px + var(--safe-b) + 14px);
+/* 🔄 — справа над аим-стиком */
+#bSwitch{right:calc(14px + var(--safe-r));bottom:calc(14px + var(--safe-b) + 170px);
     width:clamp(46px,13vw,56px);height:clamp(46px,13vw,56px);font-size:18px}
 
 @media (max-height:420px) and (orientation:landscape){
-    #joyZone{width:clamp(90px,20vh,120px);height:clamp(90px,20vh,120px)}
-    #bAtk{width:clamp(58px,15vh,76px);height:clamp(58px,15vh,76px)}
-    #bUse{width:clamp(42px,11vh,52px);height:clamp(42px,11vh,52px);right:calc(80px + var(--safe-r) + 12px)}
-    #bSwitch{width:clamp(38px,10vh,46px);height:clamp(38px,10vh,46px);bottom:calc(80px + var(--safe-b) + 12px)}
+    #joyZone,#aimZone{width:clamp(90px,22vh,120px);height:clamp(90px,22vh,120px)}
+    #bUse{width:clamp(42px,11vh,52px);height:clamp(42px,11vh,52px);
+        right:calc(14px + var(--safe-r) + 80px);bottom:calc(14px + var(--safe-b) + 130px)}
+    #bSwitch{width:clamp(38px,10vh,46px);height:clamp(38px,10vh,46px);
+        right:calc(14px + var(--safe-r));bottom:calc(14px + var(--safe-b) + 130px)}
 }

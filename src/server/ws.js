@@ -37,7 +37,7 @@ function handleConnection(ws) {
 
         if (msg.type === 'create') {
             const code = makeCode();
-            const room = new Room(code, msg.mode || 'pvp', msg.mapType || 'rooms');
+            const room = new Room(code, msg.mode || 'pvp', msg.mapType || 'rooms', msg.monsters !== false);
             rooms.set(code, room);
             const id = nextPlayerId++;
             const p = room.addPlayer(id, msg.name || 'Player', ws);

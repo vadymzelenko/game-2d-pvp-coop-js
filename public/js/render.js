@@ -8,6 +8,11 @@ let darkCv = document.createElement('canvas');
 let dctx = darkCv.getContext('2d');
 let noiseCv = document.createElement('canvas');
 
+// Насколько близко монстр должен быть, чтобы его видели даже в темноте
+const MONSTER_NEAR_RADIUS = 120;
+// Порог яркости тайла, при котором ещё рисуем объекты на нём
+const LIT_THRESHOLD = 0.15;
+
 export function getCanvasInfo() { return { W, H, DPR }; }
 
 export function setupCanvas() {
@@ -56,15 +61,15 @@ function hexRgb(hex) {
     return `${parseInt(h.substring(0,2),16)},${parseInt(h.substring(2,4),16)},${parseInt(h.substring(4,6),16)}`;
 }
 
-// Свежий ли тайл под координатами (в мировых пикселях). threshold = минимальная яркость,
-// при которой объект ещё стоит показывать.
-function isWorldLit(wx, wy, nowSec, threshold = 0.12) {
+// Свежий ли тайл в мировых координатах (для фильтрации лута/монстров/игроков)
+function isWorldLit(wx, wy, nowSec, threshold = LIT_THRESHOLD) {
     if (!S.explored) return true;
     const tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
     if (tx < 0 || ty < 0 || tx >= S.COLS || ty >= S.ROWS) return false;
     return tileBrightness(ty * S.COLS + tx, nowSec, FOG_FADE_TIME) > threshold;
 }
 
+/* ======================= RENDER ======================= */
 export function render() {
     const ctx = document.getElementById('cv').getContext('2d');
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -88,17 +93,14 @@ export function render() {
     ctx.translate(-camX, -camY);
 
     /* ============ ТАЙЛЫ С ЗАТУХАНИЕМ ============ */
-    // Тайл был освещён N сек назад — рисуем с alpha по tileBrightness().
-    // Полностью выцвел — вообще не рисуем (остаётся чёрный фон canvas).
     for (let y = y0; y < y1; y++) {
         for (let x = x0; x < x1; x++) {
             const idx = y * S.COLS + x;
             const br = tileBrightness(idx, nowSec, FOG_FADE_TIME);
-            if (br <= 0.02) continue;
+            if (br <= 0.02) continue; // полностью погас — не рисуем
 
             const isWall = S.map[y][x] === '#';
             const h = hash2(x, y);
-
             ctx.globalAlpha = br;
 
             if (isWall) {
@@ -161,7 +163,7 @@ export function render() {
 
     /* ============ ЛУТ ============ */
     for (const l of S.loot) {
-        if (!isWorldLit(l.x, l.y, nowSec, 0.15)) continue;
+        if (!isWorldLit(l.x, l.y, nowSec)) continue;
         const pulse = 1 + Math.sin(S.t * 3 + l.id.charCodeAt(1)) * 0.15;
         let col = '#ffd060';
         let draw = null;
@@ -218,13 +220,10 @@ export function render() {
         }
     }
 
-    /* ============ МОНСТРЫ ============
-       Показываем если: тайл под монстром освещён, ИЛИ монстр ближе 120px
-       (чтобы не били «из тьмы», но и не подсвечивали дальних). */
-    const NEAR_RADIUS = 120;
+    /* ============ МОНСТРЫ ============ */
     for (const m of S.monsters) {
         const dNear = Math.hypot(m.x - p.x, m.y - p.y);
-        const visible = dNear < NEAR_RADIUS || isWorldLit(m.x, m.y, nowSec, 0.15);
+        const visible = dNear < MONSTER_NEAR_RADIUS || isWorldLit(m.x, m.y, nowSec);
         if (!visible) continue;
 
         const pulse = 1 + Math.sin(S.t * 7 + m.id.charCodeAt(1)) * 0.08;
@@ -252,7 +251,6 @@ export function render() {
             ctx.fillStyle = 'rgba(255,255,255,' + (m.hitT * 5) + ')';
             ctx.beginPath(); ctx.arc(m.x, m.y, 16, 0, 6.2832); ctx.fill();
         }
-
         ctx.fillStyle = 'rgba(0,0,0,0.8)';
         ctx.fillRect(m.x - 12, m.y - 20, 24, 4);
         ctx.fillStyle = '#ff2050';
@@ -266,13 +264,15 @@ export function render() {
         if (+id === S.myId) continue;
         const o = S.players[id];
         if (o.dead || o._hidden) continue;
-        if (o.effects && o.effects.invisible > 0) continue;
+        const revealed = !!o.revealed;
 
-        // В PVP сервер шлёт только видимых — дополнительно проверим тайл, чтобы
-        // не рисовать его на «погасшем» тайле, если игрок забежал в темноту.
-        if (S.mode === 'pvp' && !isWorldLit(o.x, o.y, nowSec, 0.15)) continue;
+        // Невидимость: показываем только если reveal по звуку
+        if (o.effects && o.effects.invisible > 0 && !revealed) continue;
 
-        drawRemotePlayer(ctx, o);
+        // В PVP: если не reveal'нут — рисуем только на освещённом тайле
+        if (S.mode === 'pvp' && !revealed && !isWorldLit(o.x, o.y, nowSec)) continue;
+
+        drawRemotePlayer(ctx, o, revealed);
     }
 
     /* ============ СНАРЯДЫ ============ */
@@ -331,8 +331,7 @@ export function render() {
 
     ctx.restore();
 
-    /* ============ СЛОЙ ТЕМНОТЫ / ФОНАРИК ============
-       Атмосферное затемнение поверх всего, поверх — «дырки» от источников света. */
+    /* ============ СЛОЙ ТЕМНОТЫ / ФОНАРИК ============ */
     dctx.globalCompositeOperation = 'source-over';
     dctx.clearRect(0, 0, W, H);
     dctx.fillStyle = 'rgba(10,4,25,0.65)';
@@ -356,15 +355,21 @@ export function render() {
     for (const id in S.players) {
         if (+id === S.myId) continue;
         const o = S.players[id];
-        if (o.dead || o._hidden || (o.effects && o.effects.invisible > 0)) continue;
+        if (o.dead || o._hidden) continue;
+        const revealed = !!o.revealed;
+        if (o.effects && o.effects.invisible > 0 && !revealed) continue;
+
         const sx = (o._rx !== undefined ? o._rx : o.x) - camX;
         const sy = (o._ry !== undefined ? o._ry : o.y) - camY;
         if (sx < -60 || sx > W + 60 || sy < -60 || sy > H + 60) continue;
-        const g = dctx.createRadialGradient(sx, sy, 0, sx, sy, 54);
-        g.addColorStop(0, 'rgba(0,0,0,0.85)');
+
+        // Revealed "сквозь стену" — даём мягкий прожектор, чтобы читалось
+        const r = revealed ? 70 : 54;
+        const g = dctx.createRadialGradient(sx, sy, 0, sx, sy, r);
+        g.addColorStop(0, revealed ? 'rgba(0,0,0,0.95)' : 'rgba(0,0,0,0.85)');
         g.addColorStop(1, 'rgba(0,0,0,0)');
         dctx.fillStyle = g;
-        dctx.beginPath(); dctx.arc(sx, sy, 54, 0, 6.2832); dctx.fill();
+        dctx.beginPath(); dctx.arc(sx, sy, r, 0, 6.2832); dctx.fill();
     }
 
     // Свет вокруг игрока
@@ -408,7 +413,7 @@ export function render() {
     drawMinimap();
 }
 
-/* ============ ИГРОКИ ============ */
+/* ================= ИГРОКИ ================= */
 function drawLocalPlayer(ctx, p) {
     ctx.save();
     ctx.translate(p.x, p.y);
@@ -426,6 +431,10 @@ function drawLocalPlayer(ctx, p) {
         ctx.beginPath(); ctx.arc(0, 0, 14, 0, 6.2832); ctx.stroke();
         ctx.shadowBlur = 0;
     }
+
+    // Невидимость — полупрозрачный силуэт для себя самого
+    const invisible = (p.effects.invisible || 0) > 0;
+    ctx.globalAlpha = invisible ? 0.45 : 1;
 
     ctx.fillStyle = '#3a2050';
     ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.2832); ctx.fill();
@@ -449,29 +458,68 @@ function drawLocalPlayer(ctx, p) {
         ctx.fillStyle = 'rgba(255,240,200,' + (S.meleeFlash * 5) + ')';
         ctx.beginPath(); ctx.arc(14, 0, 12, 0, 6.2832); ctx.fill();
     }
+
+    ctx.globalAlpha = 1;
+
+    // Иконка "я невидим" — маленький глаз над игроком
+    if (invisible) {
+        ctx.rotate(-p.dir);
+        ctx.font = 'bold 11px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#8ac0ff';
+        ctx.shadowColor = '#8ac0ff'; ctx.shadowBlur = 8;
+        ctx.fillText('👁', 0, -18);
+        ctx.shadowBlur = 0;
+    }
+
     ctx.restore();
 }
 
-function drawRemotePlayer(ctx, o) {
+function drawRemotePlayer(ctx, o, revealed) {
     const rx = o._rx !== undefined ? o._rx : o.x;
     const ry = o._ry !== undefined ? o._ry : o.y;
+
     ctx.save();
     ctx.translate(rx, ry);
 
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
-    g.addColorStop(0, 'rgba(120,200,255,0.4)');
-    g.addColorStop(1, 'rgba(120,200,255,0)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, 20, 0, 6.2832); ctx.fill();
+    // === ЗВУКОВАЯ ЗАСВЕТКА — призрачный ореол ===
+    if (revealed) {
+        const pulse = 0.55 + 0.45 * Math.sin(performance.now() * 0.008);
 
-    ctx.fillStyle = '#1a3050';
+        const gg = ctx.createRadialGradient(0, 0, 0, 0, 0, 26);
+        gg.addColorStop(0,   `rgba(255,90,70,${0.55 * pulse})`);
+        gg.addColorStop(0.6, `rgba(255,60,40,${0.25 * pulse})`);
+        gg.addColorStop(1,   'rgba(255,40,20,0)');
+        ctx.fillStyle = gg;
+        ctx.beginPath(); ctx.arc(0, 0, 26, 0, 6.2832); ctx.fill();
+
+        // Пунктирное кольцо — «звуковые волны»
+        ctx.strokeStyle = `rgba(255,150,120,${0.7 + 0.3 * pulse})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.lineDashOffset = -performance.now() * 0.02;
+        ctx.beginPath(); ctx.arc(0, 0, 18 + (pulse - 0.55) * 4, 0, 6.2832); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.lineDashOffset = 0;
+    } else {
+        const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 20);
+        g.addColorStop(0, 'rgba(120,200,255,0.4)');
+        g.addColorStop(1, 'rgba(120,200,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(0, 0, 20, 0, 6.2832); ctx.fill();
+    }
+
+    // Тело
+    ctx.globalAlpha = revealed ? 0.72 : 1;
+    ctx.fillStyle = revealed ? '#502430' : '#1a3050';
     ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.2832); ctx.fill();
-    ctx.fillStyle = '#3a60a0';
+    ctx.fillStyle = revealed ? '#a05060' : '#3a60a0';
     ctx.beginPath(); ctx.arc(0, 0, 6, 0, 6.2832); ctx.fill();
 
     ctx.rotate(o.dir);
-    ctx.fillStyle = '#80c0ff';
-    ctx.shadowColor = '#80c0ff'; ctx.shadowBlur = 8;
+    ctx.fillStyle = revealed ? '#ff9060' : '#80c0ff';
+    ctx.shadowColor = revealed ? '#ff6030' : '#80c0ff';
+    ctx.shadowBlur = 8;
     ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(3, -5); ctx.lineTo(3, 5); ctx.closePath(); ctx.fill();
     ctx.shadowBlur = 0;
 
@@ -480,13 +528,15 @@ function drawRemotePlayer(ctx, o) {
         ctx.fillRect(8, -1.4, 10, 2.8);
     }
     ctx.restore();
+    ctx.globalAlpha = 1;
 
-    ctx.fillStyle = '#c0e0ff';
+    // Имя + HP
+    ctx.fillStyle = revealed ? '#ffb090' : '#c0e0ff';
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.shadowColor = '#000'; ctx.shadowBlur = 6;
-    ctx.fillText(o.name, rx, ry - 18);
+    ctx.fillText(revealed ? `${o.name} ♪` : o.name, rx, ry - 18);
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = 'rgba(0,0,0,0.8)';

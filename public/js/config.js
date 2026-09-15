@@ -22,4 +22,13 @@ export const POWERUP_INFO = {
     spawn:     { color:'#7effb0', icon:'🛡', label:'ЗАЩИТА' }
 };
 
+// Затухание тумана (сек)
 export const FOG_FADE_TIME = 8;
+
+// Правый стик: с какой доли вытянутости начинается огонь
+// 0.0 = стреляем сразу;  1.0 = надо тянуть до конца
+export const AIM_FIRE_THRESHOLD = 0.72;
+
+// Зеркальные константы звуковой засветки — только для UI-подсказок
+export const REVEAL_TIME   = 2.5;
+export const REVEAL_RADIUS = 360;
