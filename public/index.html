@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+    <meta name="theme-color" content="#0a0414">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>САНАТОРИЙ · MP</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="vig"></div>
+<div id="scan"></div>
+<div id="spawnRing"></div>
+
+<div id="hud">
+    <div id="topLeft">
+        <div id="score">СЧЁТ: 0</div>
+        <div id="kills"></div>
+    </div>
+    <div id="topRight">
+        <div id="roomcode"></div>
+        <button id="exitBtn">ВЫЙТИ</button>
+    </div>
+    <div id="effects"></div>
+    <div id="killfeed"></div>
+    <div id="bottomBar">
+        <div id="hp">
+            <div id="hpbar"><div id="hpfill" style="width:100%"></div></div>
+            <div id="hplbl">HP 100</div>
+        </div>
+        <div id="weaponBox">
+            <div id="ammo"></div>
+            <div id="weapon"></div>
+        </div>
+    </div>
+    <div id="toast"></div>
+</div>
+
+<div id="minimap"><canvas id="mmcv" width="280" height="192"></canvas></div>
+
+<div id="dead"><div>ТЫ УБИТ</div><div id="deadSub">ВОЗРОЖДЕНИЕ...</div></div>
+
+<div id="mob">
+    <div id="joyZone"><div id="joyBase"><div id="joyKnob"></div></div></div>
+    <button class="mBtn" id="bAtk">ОГОНЬ</button>
+    <button class="mBtn" id="bUse">ВЗЯТЬ</button>
+    <button class="mBtn" id="bSwitch">🔄</button>
+</div>
+
+<div id="menu">
+    <div class="card">
+        <h1>САНАТОРИЙ «ЗОРЯ»</h1>
+        <div class="sub">MULTIPLAYER · v4.0</div>
+        <input type="text" id="nameInp" maxlength="14" placeholder="имя">
+        <div class="lbl">РЕЖИМ</div>
+        <div class="row">
+            <button class="mbtn small on" data-mode="pvp" id="mPvp">⚔ PVP</button>
+            <button class="mbtn small" data-mode="coop" id="mCoop">🤝 CO-OP</button>
+        </div>
+        <div class="lbl">КАРТА</div>
+        <div class="row">
+            <button class="mbtn small on" data-map="rooms" id="mapRooms">🏭 СТАНЦИЯ</button>
+            <button class="mbtn small" data-map="open" id="mapOpen">🌌 АРЕНА</button>
+            <button class="mbtn small" data-map="maze" id="mapMaze">🌀 ЛАБИРИНТ</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+            <button class="mbtn primary" id="btnCreate">СОЗДАТЬ КОМНАТУ</button>
+        </div>
+        <div class="lbl">ИЛИ ПОДКЛЮЧИТЬСЯ</div>
+        <div class="row">
+            <input type="text" id="codeInp" maxlength="4" placeholder="КОД" style="width:100px;text-transform:uppercase;margin-bottom:0">
+            <button class="mbtn" id="btnJoin">ВОЙТИ</button>
+        </div>
+        <div class="err" id="menuErr"></div>
+        <div class="hintbar">WASD/ДЖОЙСТИК · ОГОНЬ · E — ПОДОБРАТЬ · 1-7 — ОРУЖИЕ<br>💡 в CO-OP туман общий, в PVP — у каждого свой</div>
+    </div>
+</div>
+
+<div id="lobby" class="hide">
+    <div class="card">
+        <h1 id="lobbyTitle">КОМНАТА</h1>
+        <div class="sub" id="lobbyMode">PVP · ДО 8 УБИЙСТВ</div>
+        <div class="code-big" id="lobbyCode">----</div>
+        <div class="lbl">ССЫЛКА ДЛЯ ДРУЗЕЙ</div>
+        <div style="font-size:10px;color:#7effb0;letter-spacing:1px;text-shadow:0 0 8px #0fa;word-break:break-all" id="lobbyLink"></div>
+        <div class="plist" id="lobbyPlayers"></div>
+        <button class="mbtn primary" id="btnStart" style="margin-top:12px">В БОЙ</button>
+        <button class="mbtn small" id="btnLeave" style="margin-top:4px">ПОКИНУТЬ</button>
+    </div>
+</div>
+
+<div id="gameover" class="hide">
+    <div class="card">
+        <h1 id="goTitle">ПОБЕДА</h1>
+        <div class="sub" id="goSub"></div>
+        <button class="mbtn primary" id="goBack">ПРОДОЛЖИТЬ</button>
+    </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
