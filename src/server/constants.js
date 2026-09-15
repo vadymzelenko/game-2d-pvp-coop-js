@@ -35,11 +35,15 @@ const FOG_RAYS        = 40;
 
 const VISIBILITY_HYSTERESIS = 0.4;
 
-/* ==== ЗВУКОВАЯ ЗАСВЕТКА ====
-   После выстрела игрок «слышен» соседям в течение REVEAL_TIME секунд,
-   если они ближе REVEAL_RADIUS. Работает и через стены, и в невидимости. */
+/* ==== ЗВУКОВАЯ ЗАСВЕТКА ==== */
 const REVEAL_TIME   = 2.5;
 const REVEAL_RADIUS = 360;
+
+/* ==== РАДИУС БЛИЗОСТИ ИГРОКОВ ====
+   В этом радиусе чужой игрок виден ВСЕГДА, вне зависимости от
+   фонарика, стен и видимости тайлов. За радиусом — только если
+   он недавно стрелял (revealedBySound). */
+const NEAR_PLAYER_RADIUS = 260;
 
 module.exports = {
     TILE, MAP_W, MAP_H,
@@ -48,5 +52,6 @@ module.exports = {
     SPAWN_PROTECT_SEC, AUTO_MELEE_RANGE, AUTO_MELEE_CD, AUTO_MELEE_DMG,
     VIEW_RANGE, VIEW_HALF_ANGLE, VIEW_RADIUS, FOG_RAYS,
     VISIBILITY_HYSTERESIS,
-    REVEAL_TIME, REVEAL_RADIUS
+    REVEAL_TIME, REVEAL_RADIUS,
+    NEAR_PLAYER_RADIUS
 };

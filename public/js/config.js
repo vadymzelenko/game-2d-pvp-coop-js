@@ -27,3 +27,6 @@ export const AIM_FIRE_THRESHOLD = 0.72;
 
 export const REVEAL_TIME   = 2.5;
 export const REVEAL_RADIUS = 360;
+
+/* Радиус, в котором чужие игроки видны ВСЕГДА (независимо от фонарика и тьмы). */
+export const NEAR_PLAYER_RADIUS = 260;

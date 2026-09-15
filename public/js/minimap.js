@@ -1,5 +1,5 @@
 import { S, tileBrightness } from './state.js';
-import { TILE, FOG_FADE_TIME } from './config.js';
+import { TILE, FOG_FADE_TIME, NEAR_PLAYER_RADIUS } from './config.js';
 
 export function drawMinimap() {
     const mc = document.getElementById('mmcv');
@@ -46,12 +46,22 @@ export function drawMinimap() {
         mctx.fillStyle = '#ff2050';
         mctx.fillRect((m.x / TILE) * sx - 1.5, (m.y / TILE) * sy - 1.5, 3, 3);
     }
+
+    // Чужие игроки на миникарте — по радиусу близости (или revealed)
     for (const id in S.players) {
         const o = S.players[id];
         if (o.dead || o._hidden) continue;
-        if (+id !== S.myId && !lit(o.x, o.y)) continue;
-        if (+id === S.myId) mctx.fillStyle = '#7effb0';
-        else mctx.fillStyle = (o.effects && o.effects.invisible > 0) ? '#4a4060' : '#80c0ff';
+
+        if (+id === S.myId) {
+            mctx.fillStyle = '#7effb0';
+        } else {
+            const revealed = !!o.revealed;
+            const d = Math.hypot(o.x - S.player.x, o.y - S.player.y);
+            if (d > NEAR_PLAYER_RADIUS && !revealed) continue;
+            if (o.effects && o.effects.invisible > 0 && !revealed) continue;
+            mctx.fillStyle = revealed ? '#e8a050'
+                : (o.effects && o.effects.invisible > 0) ? '#4a4060' : '#80c0ff';
+        }
         mctx.fillRect((o.x / TILE) * sx - 1.5, (o.y / TILE) * sy - 1.5, 3, 3);
     }
 }

@@ -1,5 +1,5 @@
 import { S, tileBrightness } from './state.js';
-import { WEAPONS, POWERUP_INFO, TILE, FOG_FADE_TIME } from './config.js';
+import { WEAPONS, POWERUP_INFO, TILE, FOG_FADE_TIME, NEAR_PLAYER_RADIUS } from './config.js';
 import { drawMinimap } from './minimap.js';
 
 let DPR = 1;
@@ -72,7 +72,6 @@ export function render() {
     ctx.fillStyle = '#050608';
     ctx.fillRect(0, 0, W, H);
 
-    // Не рисуем ничего, пока не в игре
     if (S.mode_ui !== 'game' || !S.map) return;
 
     const p = S.player;
@@ -102,9 +101,7 @@ export function render() {
             ctx.globalAlpha = br;
 
             if (isWall) {
-                // Стена: тёмно-серый бетон со стальным отливом
                 const zone = (Math.floor(x / 8) + Math.floor(y / 6) * 3) % 4;
-                // Оттенок задаёт чуть тёплый/холодный тон, но без неона
                 const HUE   = [220, 40, 200, 30][zone];
                 const SAT   = 6 + h * 4;
                 const LIGHT = 32 + h * 8;
@@ -112,32 +109,26 @@ export function render() {
                 ctx.fillStyle = `hsl(${HUE}, ${SAT}%, ${LIGHT}%)`;
                 ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
 
-                // Верхний скол
                 ctx.fillStyle = `hsla(${HUE}, ${SAT + 4}%, ${LIGHT + 12}%, 0.85)`;
                 ctx.fillRect(x * TILE, y * TILE, TILE, 2);
 
-                // Левая подсветка (объём)
                 ctx.fillStyle = `hsla(${HUE}, ${SAT + 3}%, ${LIGHT + 6}%, 0.5)`;
                 ctx.fillRect(x * TILE, y * TILE, 2, TILE);
 
-                // Нижняя тень
                 ctx.fillStyle = 'rgba(0,0,0,0.55)';
                 ctx.fillRect(x * TILE, y * TILE + TILE - 3, TILE, 3);
 
-                // Кирпичная шероховатость
                 if (h > 0.5) {
                     ctx.fillStyle = `hsla(${HUE}, ${SAT}%, ${LIGHT + 14}%, 0.28)`;
                     ctx.fillRect(x * TILE + 2,  y * TILE + 7,  8, 1);
                     ctx.fillRect(x * TILE + 11, y * TILE + 13, 7, 1);
                     ctx.fillRect(x * TILE + 3,  y * TILE + 17, 5, 1);
                 }
-                // Трещинка-акцент
                 if (h > 0.93) {
                     ctx.fillStyle = `hsla(0, 0%, ${LIGHT + 20}%, 0.4)`;
                     ctx.fillRect(x * TILE + 6, y * TILE + 4, 1, 6);
                 }
             } else {
-                // Пол: почти чёрный, с очень тонкой сеткой
                 const FH = 220;
                 ctx.fillStyle = `hsl(${FH}, 5%, ${13 + h * 4}%)`;
                 ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
@@ -151,7 +142,6 @@ export function render() {
                 ctx.lineTo(x * TILE + TILE, y * TILE + TILE);
                 ctx.stroke();
 
-                // Редкие пылинки-детали
                 if (h > 0.97) {
                     ctx.fillStyle = `hsla(40, 15%, 35%, 0.35)`;
                     ctx.beginPath();
@@ -258,21 +248,26 @@ export function render() {
         ctx.fillRect(m.x - 12, m.y - 19, 24 * Math.max(0, m.hp / m.maxHp), 3);
     }
 
-    /* ============ ЧУЖИЕ ИГРОКИ ============ */
+    /* ============ ЧУЖИЕ ИГРОКИ ============
+       Никакого фонарика: видно по РАДИУСУ БЛИЗОСТИ.
+       Если отошёл — исчезает в темноте. Если подошёл — появляется.
+       Если стрелял издалека — показывается как revealed. */
     for (const id in S.players) {
         if (+id === S.myId) continue;
         const o = S.players[id];
         if (o.dead || o._hidden) continue;
         const revealed = !!o.revealed;
         if (o.effects && o.effects.invisible > 0 && !revealed) continue;
-        if (S.mode === 'pvp' && !revealed && !isWorldLit(o.x, o.y, nowSec)) continue;
+
+        const d = Math.hypot(o.x - p.x, o.y - p.y);
+        if (d > NEAR_PLAYER_RADIUS && !revealed) continue;
+
         drawRemotePlayer(ctx, o, revealed);
     }
 
-    /* ============ СНАРЯДЫ — трассеры ============ */
+    /* ============ СНАРЯДЫ ============ */
     for (const pr of S.projectiles) {
         const wc = WEAPONS[pr.weapon]?.color || '#d4913f';
-        // Трассер: короткая светящаяся точка + свечение
         const g = ctx.createRadialGradient(pr.x, pr.y, 0, pr.x, pr.y, 12);
         g.addColorStop(0,   `rgba(255,250,220,1)`);
         g.addColorStop(0.35,`rgba(${hexRgb(wc)},0.9)`);
@@ -342,6 +337,7 @@ export function render() {
         dctx.beginPath(); dctx.arc(sx, sy, 28, 0, 6.2832); dctx.fill();
     }
 
+    // Для чужих игроков расчищаем тьму только если они в радиусе близости (или revealed)
     for (const id in S.players) {
         if (+id === S.myId) continue;
         const o = S.players[id];
@@ -349,11 +345,14 @@ export function render() {
         const revealed = !!o.revealed;
         if (o.effects && o.effects.invisible > 0 && !revealed) continue;
 
+        const d = Math.hypot(o.x - p.x, o.y - p.y);
+        if (d > NEAR_PLAYER_RADIUS && !revealed) continue;
+
         const sx = (o._rx !== undefined ? o._rx : o.x) - camX;
         const sy = (o._ry !== undefined ? o._ry : o.y) - camY;
         if (sx < -60 || sx > W + 60 || sy < -60 || sy > H + 60) continue;
 
-        const r = revealed ? 70 : 50;
+        const r = revealed ? 70 : 55;
         const g = dctx.createRadialGradient(sx, sy, 0, sx, sy, r);
         g.addColorStop(0, 'rgba(0,0,0,0.88)');
         g.addColorStop(1, 'rgba(0,0,0,0)');
@@ -385,19 +384,16 @@ export function render() {
     dctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(darkCv, 0, 0);
 
-
     /* ============ СВЕТ ФОНАРИКА (поверх тьмы) ============ */
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
-// Мягкий амбиент вокруг игрока
     const ambG = ctx.createRadialGradient(psx, psy, 0, psx, psy, 130);
     ambG.addColorStop(0, 'rgba(255,232,190,0.10)');
     ambG.addColorStop(1, 'rgba(255,232,190,0)');
     ctx.fillStyle = ambG;
     ctx.beginPath(); ctx.arc(psx, psy, 130, 0, 6.2832); ctx.fill();
 
-// Конус
     ctx.beginPath();
     ctx.moveTo(psx, psy);
     ctx.arc(psx, psy, 320, p.dir - 0.62, p.dir + 0.62);
@@ -447,7 +443,6 @@ function drawLocalPlayer(ctx, p) {
     const invisible = (p.effects.invisible || 0) > 0;
     ctx.globalAlpha = invisible ? 0.45 : 1;
 
-    // Тело
     ctx.fillStyle = '#2a2e35';
     ctx.beginPath(); ctx.arc(0, 0, 8, 0, 6.2832); ctx.fill();
     ctx.fillStyle = '#4a5058';
@@ -455,7 +450,6 @@ function drawLocalPlayer(ctx, p) {
 
     ctx.rotate(p.dir);
 
-    // Ствол
     if (p.weapon !== 'knife') {
         ctx.fillStyle = '#1a1d22';
         ctx.fillRect(4, -1.6, 16, 3.2);
@@ -466,25 +460,20 @@ function drawLocalPlayer(ctx, p) {
         ctx.fillRect(6, -1, 10, 2);
     }
 
-    // Стрелка направления
     ctx.fillStyle = '#d8dce2';
     ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(3, -4); ctx.lineTo(3, 4); ctx.closePath(); ctx.fill();
 
-    // MUZZLE FLASH — сразу у дула
     if (S.muzzleFlash > 0) {
         const k = Math.min(1, S.muzzleFlash / 0.07);
         const muzzleX = 20;
-        // Основная вспышка
         const mf = ctx.createRadialGradient(muzzleX, 0, 0, muzzleX, 0, 16 * k);
         mf.addColorStop(0,   `rgba(255,240,190,${k})`);
         mf.addColorStop(0.4, `rgba(240,178,85,${k * 0.75})`);
         mf.addColorStop(1,   `rgba(180,90,20,0)`);
         ctx.fillStyle = mf;
         ctx.beginPath(); ctx.arc(muzzleX, 0, 16 * k, 0, 6.2832); ctx.fill();
-        // Ядро
         ctx.fillStyle = `rgba(255,255,220,${k})`;
         ctx.beginPath(); ctx.arc(muzzleX, 0, 3.5 * k, 0, 6.2832); ctx.fill();
-        // Лучики
         ctx.strokeStyle = `rgba(255,220,150,${k * 0.8})`;
         ctx.lineWidth = 1.6;
         ctx.beginPath();
