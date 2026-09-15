@@ -31,9 +31,11 @@ export function updateHUD() {
     $('hpfill').style.width = Math.max(0, p.hp) + '%';
     $('hplbl').textContent = 'HP ' + Math.max(0, Math.round(p.hp));
 
-    const w = WEAPONS[p.weapon];
-    $('weapon').textContent = w ? w.name : '—';
-    $('ammo').textContent = (w && !w.melee) ? p.ammo : '∞';
+    // Фоллбэк на пистолет: если оружие ещё не пришло в state, не показываем "—"
+    const w = WEAPONS[p.weapon] || WEAPONS.pistol;
+    $('weapon').textContent = w.name;
+    $('ammo').textContent = (!w.melee) ? p.ammo : '∞';
+
     $('score').textContent = 'СЧЁТ: ' + p.score;
     $('kills').textContent = S.mode === 'pvp' ? 'ЦЕЛЬ: 8 УБИЙСТВ' : 'ВЫЖИВАНИЕ';
 
@@ -68,14 +70,12 @@ export function onJoined(msg) {
     updateLobbyList(msg.players);
 
     if (msg.started) {
-        // Мы присоединились к уже идущей игре
         $('menu').classList.add('hide');
         $('lobby').classList.add('hide');
         S.mode_ui = 'game';
         const me = S.players[S.myId];
         if (me) { S.player.x = me.x; S.player.y = me.y; }
     } else {
-        // Идём в лобби
         $('menu').classList.add('hide');
         $('lobby').classList.remove('hide');
         S.mode_ui = 'lobby';

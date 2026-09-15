@@ -47,7 +47,6 @@ class Room {
         this.projectiles = [];
         this.explosions = [];
 
-        // Симуляция не идёт, пока кто-то не нажмёт «В БОЙ»
         this.started = false;
 
         const data = generateMap(this.mapType);
@@ -61,6 +60,11 @@ class Room {
         this.spawnLoot();
         if (this.monstersEnabled) this.spawnMonsters();
         this.interval = setInterval(() => this.tick(), 40);
+    }
+
+    /* ---------- Публичный помощник для ws.js ---------- */
+    isSolid(x, y) {
+        return solid(this.map, x, y);
     }
 
     /* ---------- Спавн ---------- */
@@ -139,7 +143,6 @@ class Room {
         if (this.started) return false;
         this.started = true;
         const now = Date.now() / 1000;
-        // даём всем свежую защиту на старте
         for (const p of this.players.values()) {
             p.effects.spawn = now + SPAWN_PROTECT_SEC;
         }
@@ -344,7 +347,7 @@ class Room {
 
     /* ---------- Главный тик ---------- */
     tick() {
-        if (!this.started) return;    // пока лобби — не тикаем вообще
+        if (!this.started) return;
 
         const now = Date.now() / 1000;
         const dt = Math.min(0.1, (Date.now() - this.lastTick) / 1000);

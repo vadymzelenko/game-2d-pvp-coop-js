@@ -107,7 +107,7 @@ export function render() {
                 // Оттенок задаёт чуть тёплый/холодный тон, но без неона
                 const HUE   = [220, 40, 200, 30][zone];
                 const SAT   = 6 + h * 4;
-                const LIGHT = 24 + h * 8;
+                const LIGHT = 32 + h * 8;
 
                 ctx.fillStyle = `hsl(${HUE}, ${SAT}%, ${LIGHT}%)`;
                 ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
@@ -139,7 +139,7 @@ export function render() {
             } else {
                 // Пол: почти чёрный, с очень тонкой сеткой
                 const FH = 220;
-                ctx.fillStyle = `hsl(${FH}, 5%, ${9 + h * 3}%)`;
+                ctx.fillStyle = `hsl(${FH}, 5%, ${13 + h * 4}%)`;
                 ctx.fillRect(x * TILE, y * TILE, TILE, TILE);
 
                 ctx.strokeStyle = `hsla(${FH}, 8%, ${14 + h * 4}%, 0.6)`;
@@ -326,7 +326,7 @@ export function render() {
     /* ============ СЛОЙ ТЬМЫ / ФОНАРИК ============ */
     dctx.globalCompositeOperation = 'source-over';
     dctx.clearRect(0, 0, W, H);
-    dctx.fillStyle = 'rgba(6,8,12,0.72)';
+    dctx.fillStyle = 'rgba(2,4,8,0.86)';
     dctx.fillRect(0, 0, W, H);
     dctx.globalCompositeOperation = 'destination-out';
 
@@ -384,6 +384,33 @@ export function render() {
 
     dctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(darkCv, 0, 0);
+
+
+    /* ============ СВЕТ ФОНАРИКА (поверх тьмы) ============ */
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+// Мягкий амбиент вокруг игрока
+    const ambG = ctx.createRadialGradient(psx, psy, 0, psx, psy, 130);
+    ambG.addColorStop(0, 'rgba(255,232,190,0.10)');
+    ambG.addColorStop(1, 'rgba(255,232,190,0)');
+    ctx.fillStyle = ambG;
+    ctx.beginPath(); ctx.arc(psx, psy, 130, 0, 6.2832); ctx.fill();
+
+// Конус
+    ctx.beginPath();
+    ctx.moveTo(psx, psy);
+    ctx.arc(psx, psy, 320, p.dir - 0.62, p.dir + 0.62);
+    ctx.closePath();
+    ctx.clip();
+    const coneG = ctx.createRadialGradient(psx, psy, 0, psx, psy, 320);
+    coneG.addColorStop(0,    'rgba(255,240,200,0.28)');
+    coneG.addColorStop(0.45, 'rgba(255,235,190,0.14)');
+    coneG.addColorStop(1,    'rgba(255,235,190,0)');
+    ctx.fillStyle = coneG;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.restore();
 
     /* ============ ШУМ ============ */
     const nx = -Math.floor(Math.random() * 80), ny = -Math.floor(Math.random() * 80);

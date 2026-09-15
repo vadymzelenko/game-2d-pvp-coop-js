@@ -2,6 +2,7 @@ import { S } from './state.js';
 import { WEAPONS, WEAPON_ORDER, AIM_FIRE_THRESHOLD } from './config.js';
 import { sendMsg } from './net.js';
 import { blip } from './audio.js';
+import { updateHUD } from './hud.js';
 
 export const keys = {};
 export const joy = { active: false, id: null, dx: 0, dy: 0, bx: 0, by: 0 };
@@ -21,8 +22,14 @@ export function initInput() {
             if (k === 'e') tryPickup();
             if (k >= '1' && k <= '7') {
                 const idx = +k - 1;
-                if (idx < WEAPON_ORDER.length)
-                    sendMsg({ type: 'switch', weapon: WEAPON_ORDER[idx] });
+                if (idx < WEAPON_ORDER.length) {
+                    const wName = WEAPON_ORDER[idx];
+                    if (wName === 'knife' || S.players[S.myId]?.weapons?.[wName]) {
+                        S.player.weapon = wName;   // оптимистично
+                        updateHUD();
+                        sendMsg({ type: 'switch', weapon: wName });
+                    }
+                }
             }
         }
     });
@@ -96,7 +103,14 @@ export function tryPickup() {
 
 /* ============ TOUCH ============ */
 function initTouch() {
-    if (!IS_TOUCH) return;
+    // вместо `if (!IS_TOUCH) return;` в начале initTouch:
+    if (!IS_TOUCH) {
+        // всё равно вешаем click-обработчики для возможных кнопок (например, fullscreen)
+        document.getElementById('bUse')?.addEventListener('click', tryPickup);
+        document.getElementById('bSwitch')?.addEventListener('click', () => { /* см. cycleWeapon */ });
+        return;
+    }
+
     document.getElementById('mob').classList.add('on');
 
     const joyZone = document.getElementById('joyZone');
@@ -202,16 +216,22 @@ function initTouch() {
 
     document.getElementById('bUse').addEventListener('touchstart', e => { e.preventDefault(); tryPickup(); }, { passive: false });
     document.getElementById('bUse').addEventListener('click', tryPickup);
-    document.getElementById('bSwitch').addEventListener('click', () => {
+    const cycleWeapon = () => {
         const idx = WEAPON_ORDER.indexOf(S.player.weapon);
         for (let i = 1; i < WEAPON_ORDER.length; i++) {
             const next = WEAPON_ORDER[(idx + i) % WEAPON_ORDER.length];
             if (next === 'knife' || S.players[S.myId]?.weapons?.[next]) {
+                S.player.weapon = next;     // оптимистично
+                updateHUD();
                 sendMsg({ type: 'switch', weapon: next });
                 break;
             }
         }
-    });
+    };
+
+    const bSwitch = document.getElementById('bSwitch');
+    bSwitch.addEventListener('touchstart', e => { e.preventDefault(); cycleWeapon(); }, { passive: false });
+    bSwitch.addEventListener('click', cycleWeapon);
 }
 
 export { IS_TOUCH };
