@@ -6,6 +6,10 @@ export const S = {
     explored: null,
 
     player: { x:0, y:0, dir:0, hp:100, weapon:'pistol', ammo:30, dead:false, score:0, effects:{} },
+    // Флаг: получили ли мы уже настоящую позицию от сервера.
+    // Пока false — не отправляем input и не двигаем локально.
+    playerInitialized: false,
+
     meleeFlash: 0, muzzleFlash: 0, shake: 0, t: 0, autoFire: false,
     firingCd: 0, lastSend: 0, particles: [], autoMeleeFx: [],
     mode_ui: 'menu',

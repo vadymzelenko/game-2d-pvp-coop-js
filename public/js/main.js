@@ -11,12 +11,10 @@ async function enterFullscreen() {
         const el = document.documentElement;
         if (el.requestFullscreen) await el.requestFullscreen();
         else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    } catch (e) { /* некоторые браузеры блокируют без user-gesture */ }
+    } catch (e) {}
 }
 function exitFullscreen() {
-    try {
-        if (document.fullscreenElement) document.exitFullscreen();
-    } catch (e) {}
+    try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
 }
 document.getElementById('fullBtn').addEventListener('click', () => {
     if (document.fullscreenElement) exitFullscreen();
@@ -72,6 +70,7 @@ function exitToMenu() {
     exitFullscreen();
     if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({ type: 'leave' }));
     S.mode_ui = 'menu';
+    S.playerInitialized = false;
     S.players = {}; S.monsters = []; S.loot = []; S.explored = null;
     document.getElementById('menu').classList.remove('hide');
     document.getElementById('lobby').classList.add('hide');
@@ -87,25 +86,17 @@ document.getElementById('goBack').addEventListener('click', () => {
 });
 
 document.getElementById('btnStart').addEventListener('click', async () => {
-    // Фуллскрин по user-gesture
     enterFullscreen();
-
-    // Просим сервер начать игру
     sendMsg({ type: 'start' });
 
-    // Сразу переходим в игровой режим локально
     document.getElementById('lobby').classList.add('hide');
     document.getElementById('menu').classList.add('hide');
     document.getElementById('gameover').classList.add('hide');
     S.mode_ui = 'game';
 
-    const p = S.players[S.myId];
-    if (p) { S.player.x = p.x; S.player.y = p.y; }
-
-    // Сбрасываем камеру на позицию игрока
-    const { W, H } = getCanvasInfo();
-    S.camX = Math.max(0, Math.min(S.MAPW - W, S.player.x - W / 2));
-    S.camY = Math.max(0, Math.min(S.MAPH - H, S.player.y - H / 2));
+    // НЕ трогаем S.player.x/y здесь: позиции ещё нет.
+    // net.js на первом state снапнет игрока и камеру.
+    // S.playerInitialized остаётся false — update() не двигает и не шлёт input.
 
     toast('ВЫ ПОД ЗАЩИТОЙ');
 });
@@ -123,7 +114,6 @@ let last = performance.now();
 function update(dt) {
     S.t += dt;
 
-    // Всегда обновляем таймеры для эффектов рендера (в т.ч. в лобби)
     if (S.muzzleFlash > 0) S.muzzleFlash -= dt;
     if (S.meleeFlash > 0) S.meleeFlash -= dt;
     S.shake *= 0.9;
@@ -140,6 +130,11 @@ function update(dt) {
     }
 
     if (S.mode_ui !== 'game') return;
+
+    // Пока не получили позицию от сервера — не двигаем, не шлём input.
+    // Иначе клиент насмерть застрянет на (0,0) в стене.
+    if (!S.playerInitialized) return;
+
     const p = S.player;
     if (p.dead) return;
 

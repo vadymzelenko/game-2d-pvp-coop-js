@@ -15,6 +15,14 @@ export function connectWS() {
     });
 }
 
+function snapCameraToPlayer() {
+    const vv = window.visualViewport;
+    const W = Math.round(vv ? vv.width : window.innerWidth);
+    const H = Math.round(vv ? vv.height : window.innerHeight);
+    S.camX = Math.max(0, Math.min(S.MAPW - W, S.player.x - W / 2));
+    S.camY = Math.max(0, Math.min(S.MAPH - H, S.player.y - H / 2));
+}
+
 export function handleMsg(msg) {
     switch (msg.type) {
         case 'error': showErr(msg.msg || 'Ошибка'); break;
@@ -30,6 +38,11 @@ export function handleMsg(msg) {
             S.MAPW = msg.mapW * 20;
             S.MAPH = msg.mapH * 20;
             S.players = {};
+            S.playerInitialized = false;   // ← сброс на новую комнату
+            S.player.x = 0;
+            S.player.y = 0;
+            S.camX = 0;
+            S.camY = 0;
             resetFog();
             onJoined(msg);
             break;
@@ -71,11 +84,23 @@ export function handleMsg(msg) {
 
             const me = S.players[S.myId];
             if (me) {
-                if (me.dead) { S.player.x = me.x; S.player.y = me.y; }
+                // === КЛЮЧЕВОЙ ФИКС ===
+                // Первый state после входа/снапа — принудительно синхронизируем
+                // позицию игрока с сервером. Иначе клиент остаётся на (0,0),
+                // что внутри стены, и застревает навсегда.
+                if (!S.playerInitialized || me.dead) {
+                    S.player.x = me.x;
+                    S.player.y = me.y;
+                    if (!S.playerInitialized) {
+                        S.playerInitialized = true;
+                        snapCameraToPlayer();
+                    }
+                }
                 S.player.hp = me.hp;
                 S.player.ammo = me.ammo;
                 S.player.weapon = me.weapon;
                 S.player.score = me.score;
+
                 const wasProtected = (S.player.effects.spawn || 0) > 0;
                 S.player.effects = me.effects;
                 const nowProtected = (me.effects.spawn || 0) > 0;
@@ -85,7 +110,9 @@ export function handleMsg(msg) {
                 S.player.dead = me.dead;
                 document.getElementById('dead').classList.toggle('on', me.dead);
                 if (!me.dead && wasDead) {
-                    S.player.x = me.x; S.player.y = me.y;
+                    S.player.x = me.x;
+                    S.player.y = me.y;
+                    snapCameraToPlayer();
                 }
                 updateHUD();
             }
@@ -110,8 +137,8 @@ export function handleMsg(msg) {
             S.player.x = msg.x;
             S.player.y = msg.y;
             S.player.dead = false;
-            S.camX = Math.max(0, msg.x - window.innerWidth / 2);
-            S.camY = Math.max(0, msg.y - window.innerHeight / 2);
+            S.playerInitialized = true;
+            snapCameraToPlayer();
             document.getElementById('dead').classList.remove('on');
             toast('ВЫ ПОД ЗАЩИТОЙ');
             break;

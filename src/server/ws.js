@@ -74,9 +74,25 @@ function handleConnection(ws) {
         }
         else if (msg.type === 'input') {
             const room = rooms.get(ws.roomCode); if (!room) return;
-            if (!room.started) return;   // не двигаем игрока в лобби
+            if (!room.started) return;
             const p = room.players.get(ws.playerId); if (!p || p.dead) return;
-            p.x = msg.x; p.y = msg.y; p.dir = msg.dir;
+
+            // Серверная валидация: если клиент прислал координаты внутри стены
+            // (застрял, читер, глюк) — принудительно телепортируем его в открытую
+            // точку. Это страховка от «застрял в текстурах».
+            if (typeof msg.x !== 'number' || typeof msg.y !== 'number' ||
+                !isFinite(msg.x) || !isFinite(msg.y) ||
+                room.isSolid(msg.x, msg.y)) {
+                const safe = room.findOpenSpot();
+                p.x = safe.x;
+                p.y = safe.y;
+                // Снапим клиенту позицию отдельным сообщением
+                try { p.ws.send(JSON.stringify({ type: 'respawn', x: p.x, y: p.y })); } catch (e) {}
+            } else {
+                p.x = msg.x;
+                p.y = msg.y;
+            }
+            p.dir = msg.dir;
         }
         else if (msg.type === 'switch') {
             const room = rooms.get(ws.roomCode); if (!room) return;
